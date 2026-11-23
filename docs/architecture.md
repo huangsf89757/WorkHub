@@ -216,6 +216,6 @@ v1 为 no-op 骨架，API 已冻结：`setRemoteAdapter / enqueue / push / pull 
 
 **仍未解决（有意保留）**
 - `persistDomain` 仍为整域重写；多端高频同步前需改行级 upsert。
-- 重绘仍是整区重建（只保证焦点与滚动不丢）；按领域精确重绘需要扩展声明所依赖的域。
+- 重绘仍是整区重建。扩展可声明 `domains: [...]`（可选）：无关域变更时只刷新 left / top / bottom，center / right 不重建；未声明的扩展保持整体重绘。目前仅 todo 声明。
 - 内置域（todos 等）的手写映射仍在 `db.js`，尚未迁到各扩展；新扩展请用 `table` 选项。
 - 同步仍无 CloudAdapter，端到端联网路径未经真实后端验证。

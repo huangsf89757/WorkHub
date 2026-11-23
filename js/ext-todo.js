@@ -548,6 +548,7 @@ registry.add({
   order: 1.9,
   group: 'main',
   mounts: ['left'],
+  domains: ['todos', 'todoGroups'], // center / right 只依赖这两个域：其他域变更时不重绘主内容
   desc: '分组待办、优先级、开始/截止日、标签，精简工具栏与分组视图。首个真实业务扩展样板。',
   readme: TODO_README,
   docFile: 'docs/extensions/todo.md',

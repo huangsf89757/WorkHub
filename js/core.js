@@ -855,6 +855,27 @@ function renderPreservingUi() {
   renderAll();
   restoreUiState(saved);
 }
+/**
+ * 按领域精确重绘（可选优化）：扩展声明 `domains: ['todos', ...]` 表示 center / right 只依赖这些域。
+ * 当前是该扩展的 home / detail 页，且本次变更的域不在声明里，则只刷新 left / top / bottom
+ * （角标与状态条可能依赖任意域），center / right 保持原样，不打断输入。
+ * 未声明 domains、系统页、stage 皮肤、批量事件（hydrate / 无 key）一律整体重绘，行为与以前一致。
+ */
+export function dataRenderScope(event, route = router) {
+  const key = event?.key;
+  if (!key || key === '*') return 'all';
+  if (hasSystemPage(route.extId)) return 'all';
+  const ext = registry.get(route.extId);
+  if (!ext || !Array.isArray(ext.domains)) return 'all';
+  return ext.domains.includes(key) ? 'all' : 'chrome';
+}
+function onData(event) {
+  if (dataRenderScope(event) === 'all') { renderPreservingUi(); return; }
+  applySkinLayout();
+  renderLeft();
+  renderTop();
+  renderBottom();
+}
 function renderAll() {
   applySkinLayout();
   renderLeft();
@@ -951,7 +972,7 @@ export function boot() {
   }
 
   bus.on('route', renderAll);
-  bus.on('data', renderPreservingUi);
+  bus.on('data', onData);
 
   document.addEventListener('keydown', event => {
     const typing = /^(INPUT|TEXTAREA)$/.test(document.activeElement?.tagName || '');
