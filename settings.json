@@ -1,0 +1,9 @@
+{
+  "theme": "dark",
+  "skin": "classic",
+  "shortcuts": {
+    "switchExt": "mod+1-9",
+    "settings": "mod+,",
+    "back": "esc"
+  }
+}

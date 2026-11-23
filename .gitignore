@@ -1,0 +1,8 @@
+.DS_Store
+.box-agent/
+.box-agent-scratch/
+.trae-html-share-packages/
+.workbuddy/
+.screenshots/
+.impeccable/
+node_modules/

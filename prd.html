@@ -1,0 +1,560 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>程序员效率工作台 v2 · PRD</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,500;9..144,600;9..144,700&family=JetBrains+Mono:wght@300;400;500&family=DM+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg: #0b0d17;
+    --card: rgba(255,255,255,0.04);
+    --line: rgba(255,255,255,0.1);
+    --ink: #f5f3ff;
+    --ink-dim: rgba(245,243,255,0.6);
+    --ink-mute: rgba(245,243,255,0.35);
+    --accent: #a78bfa;
+    --accent-2: #38bdf8;
+    --accent-3: #f0abfc;
+    --success: #4ade80;
+    --warn: #fbbf24;
+    --danger: #fb7185;
+    --font-display: "Fraunces", serif;
+    --font-body: "DM Sans", -apple-system, "PingFang SC", sans-serif;
+    --font-mono: "JetBrains Mono", ui-monospace, monospace;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: var(--bg); color: var(--ink); font-family: var(--font-body); line-height: 1.6; padding: 48px 32px; }
+  body { max-width: 960px; margin: 0 auto; }
+
+  h1 { font-family: var(--font-display); font-size: 40px; font-weight: 500; letter-spacing: -1px; margin-bottom: 8px; }
+  h2 { font-family: var(--font-display); font-size: 26px; font-weight: 500; margin: 56px 0 20px; padding-bottom: 10px; border-bottom: 1px solid var(--line); }
+  h3 { font-family: var(--font-display); font-size: 18px; font-weight: 500; margin: 28px 0 12px; color: var(--ink); }
+  h4 { font-size: 14px; font-weight: 600; margin: 18px 0 8px; color: var(--accent); letter-spacing: 0.5px; text-transform: uppercase; font-family: var(--font-mono); }
+
+  p { margin-bottom: 12px; color: var(--ink-dim); }
+  ul, ol { margin: 8px 0 16px 20px; color: var(--ink-dim); }
+  li { margin-bottom: 6px; }
+  strong { color: var(--ink); }
+  code { font-family: var(--font-mono); font-size: 12px; background: rgba(255,255,255,0.08); padding: 2px 6px; border-radius: 4px; color: var(--accent-2); }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0 24px; font-size: 14px; }
+  th, td { padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--line); }
+  th { font-family: var(--font-mono); font-size: 11px; color: var(--ink-mute); text-transform: uppercase; letter-spacing: 0.5px; background: rgba(255,255,255,0.03); }
+  td { color: var(--ink-dim); }
+  td code { font-size: 12px; }
+  .hero-meta { font-family: var(--font-mono); font-size: 12px; color: var(--ink-mute); margin-bottom: 40px; }
+  .hero-meta span { margin-right: 20px; }
+
+  .tag { display: inline-block; font-family: var(--font-mono); font-size: 11px; padding: 3px 10px; border-radius: 12px; margin-right: 6px; margin-bottom: 4px; }
+  .tag-p0 { background: rgba(74,222,128,0.12); color: var(--success); border: 1px solid rgba(74,222,128,0.25); }
+  .tag-p1 { background: rgba(251,191,36,0.12); color: var(--warn); border: 1px solid rgba(251,191,36,0.25); }
+  .tag-out { background: rgba(251,113,133,0.1); color: var(--danger); border: 1px solid rgba(251,113,133,0.2); text-decoration: line-through; }
+
+  .section-card { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 20px 24px; margin: 16px 0; }
+  .section-card h4 { margin-top: 0; }
+
+  .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 700px) { .grid-2 { grid-template-columns: 1fr; } }
+
+  .wireframe { background: rgba(0,0,0,0.3); border: 1px solid var(--line); border-radius: 12px; padding: 16px; margin: 12px 0; font-family: var(--font-mono); font-size: 12px; line-height: 1.4; color: var(--ink-dim); overflow-x: auto; }
+  .wireframe .row { display: flex; gap: 8px; margin-bottom: 4px; }
+  .wireframe .box { border: 1px dashed var(--ink-mute); border-radius: 6px; padding: 8px 10px; flex: 1; text-align: center; }
+  .wireframe .box.accent { border-color: var(--accent); color: var(--accent); }
+  .wireframe .box.span-2 { flex: 2; }
+  .wireframe .box.span-3 { flex: 3; }
+
+  .rule { background: rgba(167,139,250,0.06); border-left: 2px solid var(--accent); padding: 10px 14px; border-radius: 0 8px 8px 0; margin: 10px 0; font-size: 13px; color: var(--ink-dim); }
+  .rule strong { color: var(--accent); font-family: var(--font-mono); font-size: 11px; }
+
+  .toc { background: var(--card); border: 1px solid var(--line); border-radius: 12px; padding: 20px 24px; margin: 0 0 40px; }
+  .toc ol { margin: 8px 0 0 20px; }
+  .toc li { margin-bottom: 4px; }
+  .toc a { color: var(--ink-dim); text-decoration: none; }
+  .toc a:hover { color: var(--accent); }
+
+  .divider { height: 1px; background: linear-gradient(90deg, transparent, var(--line), transparent); margin: 40px 0; }
+
+  .requirement-id { display: inline-block; font-family: var(--font-mono); font-size: 11px; color: var(--accent-2); background: rgba(56,189,248,0.1); border: 1px solid rgba(56,189,248,0.2); padding: 2px 8px; border-radius: 4px; margin-right: 8px; }
+</style>
+</head>
+<body>
+
+<h1>程序员效率工作台 · v2</h1>
+<div class="hero-meta">
+  <span>PRD · 2026-11-19</span>
+  <span>Author: HSF</span>
+  <span>Scope: Full rewrite</span>
+  <span class="tag tag-p0">P0 Release</span>
+</div>
+
+<div class="toc">
+  <strong>目录</strong>
+  <ol>
+    <li><a href="#bg">背景与目标</a></li>
+    <li><a href="#scope">范围界定</a></li>
+    <li><a href="#model">产品模型</a></li>
+    <li><a href="#flow">核心流程</a></li>
+    <li><a href="#modules">功能需求</a>
+      <ol style="margin-left:20px">
+        <li><a href="#m-status">状态栏 Status Bar</a></li>
+        <li><a href="#m-projects">项目面板 Project Panel</a></li>
+        <li><a href="#m-tools">开发工具箱 Dev Tools</a></li>
+        <li><a href="#m-todos">任务管理 Task Board</a></li>
+        <li><a href="#m-snippets">代码片段 Snippets</a></li>
+        <li><a href="#m-learning">学习追踪 Learning</a></li>
+        <li><a href="#m-shortcuts">快捷入口 Quick Links</a></li>
+      </ol>
+    </li>
+    <li><a href="#shared">共享规则</a></li>
+  </ol>
+</div>
+
+<!-- ========== 1. 背景与目标 ========== -->
+<h2 id="bg">1. 背景与目标</h2>
+
+<h3>问题</h3>
+<p>一个 iOS 开发者（同时也做跨平台、全栈工作），每天打开电脑面对空白浏览器首页，需要手动打开一堆开发工具（Xcode、终端、各种文档）、切换项目上下文、找零散的代码片段、追踪学习进度。信息分散在各处，切换成本高。</p>
+
+<h3>产品决策</h3>
+<p>将"通用桌面启动页"重定义为<strong>程序员的效率中枢</strong>——聚合开发工具箱、项目管理、任务面板、学习追踪和代码片段，所有程序员每天都要用的高频操作集中在一张页面上。</p>
+
+<h3>排除的</h3>
+<ul>
+  <li><span class="tag tag-out">番茄钟</span> — 与工作节奏不匹配，程序员是任务驱动而非时间切块驱动</li>
+  <li><span class="tag tag-out">天气</span> — 与开发工作无关</li>
+  <li><span class="tag tag-out">习惯追踪</span> — 非程序员专属，过度设计</li>
+  <li><span class="tag tag-out">快速笔记</span> — 改为更聚焦的代码片段模块</li>
+</ul>
+
+<!-- ========== 2. 范围界定 ========== -->
+<h2 id="scope">2. 范围界定</h2>
+
+<h3>P0 必须交付（MVP）</h3>
+<div class="grid-2">
+  <div class="section-card">
+    <h4>核心模块</h4>
+    <p><span class="tag tag-p0">P0</span> 状态栏 · 时钟 + Unix 时间戳 + 日期</p>
+    <p><span class="tag tag-p0">P0</span> 项目面板 · 活跃项目列表，展示名称、技术栈、快捷打开</p>
+    <p><span class="tag tag-p0">P0</span> 开发工具箱 · 时间戳转换、JSON 格式化、正则测试、Color 转换、Base64</p>
+    <p><span class="tag tag-p0">P0</span> 任务管理 · 按项目分组的 Todo</p>
+    <p><span class="tag tag-p0">P0</span> 代码片段 · 带语言标签的快速代码存储</p>
+    <p><span class="tag tag-p0">P0</span> 快捷入口 · 开发工具/文档/常用网站</p>
+  </div>
+  <div class="section-card">
+    <h4>交互要求</h4>
+    <p>所有模块数据持久化到 <code>localStorage</code>，无外部依赖</p>
+    <p>工具箱为纯客户端转换，无需网络 API</p>
+    <p>页面首屏 1 秒内可用，无阻塞加载</p>
+    <p>响应式：桌面 3 列，平板 2 列，手机 1 列</p>
+  </div>
+</div>
+
+<h3>P1 后续迭代（不在本次范围）</h3>
+<div class="section-card">
+  <p><span class="tag tag-p1">P1</span> Git 仓库集成（自动拉取最近 commit 状态）</p>
+  <p><span class="tag tag-p1">P1</span> Swift Package / CocoaPods 版本检查</p>
+  <p><span class="tag tag-p1">P1</span> 命令面板（Command+K 快速唤起）</p>
+  <p><span class="tag tag-p1">P1</span> 暗色主题切换 + 跟随系统</p>
+  <p><span class="tag tag-p1">P1</span> 数据导入导出（JSON 备份）</p>
+</div>
+
+<!-- ========== 3. 产品模型 ========== -->
+<h2 id="model">3. 产品模型</h2>
+
+<h3>对象关系</h3>
+<table>
+  <thead><tr><th>对象</th><th>字段</th><th>说明</th></tr></thead>
+  <tbody>
+    <tr><td><code>Project</code></td><td>id, name, stack, url, tasks[]</td><td>项目面板中的一个项目</td></tr>
+    <tr><td><code>Task</code></td><td>id, projectId, title, done, created</td><td>归属某个项目的待办</td></tr>
+    <tr><td><code>Snippet</code></td><td>id, title, code, language, tags[], created</td><td>代码片段，支持语言标签</td></tr>
+    <tr><td><code>DevTool</code></td><td>内置，非持久化</td><td>工具箱中的一个小工具</td></tr>
+    <tr><td><code>Shortcut</code></td><td>name, url, icon</td><td>快捷入口</td></tr>
+  </tbody>
+</table>
+
+<h3>页面布局</h3>
+<div class="wireframe">
+  <div style="text-align:center;color:var(--accent-3);margin-bottom:8px;">╔══════════════════════════════════════════════════════════╗</div>
+  <div class="row">
+    <div class="box span-2 accent">  STATUS BAR  ·  时钟 / Unix 时间戳 / 日期  </div>
+    <div class="box accent">  学习目标 2026  </div>
+  </div>
+  <div style="text-align:center;color:var(--accent-3);margin:8px 0;">╠══════════════════════════════════════════════════════════╣</div>
+  <div class="row">
+    <div class="box span-2">  PROJECT PANEL  ·  活跃项目卡片  </div>
+    <div class="box">  DEV TOOLS  ·  工具箱入口  </div>
+  </div>
+  <div class="row">
+    <div class="box span-2">  TASK BOARD  ·  按项目分组 Todo  </div>
+    <div class="box">  SNIPPETS  ·  代码片段列表  </div>
+  </div>
+  <div class="row">
+    <div class="box span-3">  QUICK LINKS  ·  开发工具 + 文档入口  </div>
+  </div>
+  <div style="text-align:center;color:var(--accent-3);margin-top:8px;">╚══════════════════════════════════════════════════════════╝</div>
+</div>
+
+<!-- ========== 4. 核心流程 ========== -->
+<h2 id="flow">4. 核心流程</h2>
+
+<h3>启动</h3>
+<div class="section-card">
+  <p>浏览器加载页面 → 读取 localStorage 中所有持久化数据 → 渲染各模块 UI → 状态栏时钟启动 → 工具箱就绪。</p>
+</div>
+
+<h3>每日路径</h3>
+<div class="grid-2">
+  <div class="section-card">
+    <h4>典型路径 A：开始一天</h4>
+    <ol>
+      <li>打开浏览器 → 看到状态栏时间 + 活跃项目</li>
+      <li>点击项目 → 跳到 GitHub/Xcode</li>
+      <li>从任务面板勾选完成项</li>
+      <li>用工具箱处理数据（JSON 格式化等）</li>
+    </ol>
+  </div>
+  <div class="section-card">
+    <h4>典型路径 B：中断时</h4>
+    <ol>
+      <li>在代码中发现一个好片段 → 打开 Snippets 模块</li>
+      <li>粘贴代码 → 选语言 → 保存</li>
+      <li>下次需要时搜索找到</li>
+    </ol>
+  </div>
+</div>
+
+<!-- ========== 5. 功能需求 ========== -->
+<h2 id="modules">5. 功能需求</h2>
+
+<!-- 模块 1: Status Bar -->
+<h3 id="m-status"><span class="requirement-id">FR-01</span>状态栏 Status Bar</h3>
+<div class="section-card">
+  <h4>Purpose</h4>
+  <p>程序员一眼能看到当前时间、Unix 时间戳、星期几——开发调试时频繁用到。</p>
+
+  <h4>Layout</h4>
+  <div class="wireframe">
+    <div class="row">
+      <div class="box span-3 accent">  17:22 · 2026-11-19 · Thursday  </div>
+      <div class="box accent">  1763544167  [复制]  </div>
+    </div>
+  </div>
+
+  <h4>Processing Rules</h4>
+  <ul>
+    <li>时钟每秒刷新，24 小时制显示 <code>HH:MM:SS</code></li>
+    <li>Unix 时间戳 = <code>Math.floor(Date.now() / 1000)</code></li>
+    <li>点击时间戳复制到剪贴板，弹出 "Copied ✓" 提示 1 秒后消失</li>
+    <li>日期显示格式：<code>YYYY-MM-DD · Weekday · 第 N 周</code></li>
+  </ul>
+
+  <h4>Interaction</h4>
+  <ul>
+    <li>点击时间戳 → 复制</li>
+    <li>悬停时显示完整 ISO 时间字符串</li>
+  </ul>
+</div>
+
+<!-- 模块 2: Project Panel -->
+<h3 id="m-projects"><span class="requirement-id">FR-02</span>项目面板 Project Panel</h3>
+<div class="section-card">
+  <h4>Purpose</h4>
+  <p>程序员每天可能在 2-5 个项目间切换。这个模块聚合所有活跃项目，展示技术栈、当前待办数、快速打开入口。</p>
+
+  <h4>Layout</h4>
+  <div class="wireframe">
+    <div class="row">
+      <div class="box span-2 accent"> 项目面板 (3 列网格)  </div>
+      <div class="box"> ＋ 添加项目  </div>
+    </div>
+    <div class="row">
+      <div class="box"> 项目 A<br>Swift · iOS 17<br>待办: 3  </div>
+      <div class="box"> 项目 B<br>React · TS<br>待办: 1  </div>
+      <div class="box"> 项目 C<br>Go · gRPC<br>待办: 0  </div>
+    </div>
+  </div>
+
+  <h4>Fields</h4>
+  <table>
+    <thead><tr><th>字段</th><th>类型</th><th>必填</th><th>默认</th></tr></thead>
+    <tbody>
+      <tr><td>name</td><td>string</td><td>✓</td><td>—</td></tr>
+      <tr><td>stack</td><td>string (tags)</td><td>✓</td><td>iOS · Swift</td></tr>
+      <tr><td>repoUrl</td><td>string (URL)</td><td>✗</td><td>—</td></tr>
+      <tr><td>icon</td><td>emoji</td><td>✗</td><td>📱</td></tr>
+      <tr><td>isActive</td><td>boolean</td><td>—</td><td>true</td></tr>
+    </tbody>
+  </table>
+
+  <h4>Processing Rules</h4>
+  <ul>
+    <li>项目卡片按 <code>isActive</code> → 剩余待办数 → 创建时间排序</li>
+    <li>卡片上显示该项目的<strong>未完成 Task 数量</strong>（从 Task 模块实时计算）</li>
+    <li>点击卡片 → 打开 repoUrl（新标签页）</li>
+    <li>每个项目默认图标：iOS→📱, Web→🌐, Backend→⚙️, CLI→⌨️, 其他→📁</li>
+  </ul>
+
+  <h4>States</h4>
+  <div class="rule"><strong>删除项目</strong> → 确认弹窗 → 同时删除所有关联 Task</div>
+  <div class="rule"><strong>archive</strong>（非活跃）→ 移到底部灰色区域，不参与默认排序</div>
+</div>
+
+<!-- 模块 3: Dev Tools -->
+<h3 id="m-tools"><span class="requirement-id">FR-03</span>开发工具箱 Dev Tools</h3>
+<div class="section-card">
+  <h4>Purpose</h4>
+  <p>高频开发小工具，覆盖 iOS/Swift 开发者最常用的几个场景。纯客户端，无需网络。</p>
+
+  <h4>Layout</h4>
+  <div class="wireframe">
+    <div class="row">
+      <div class="box accent">时间戳</div>
+      <div class="box accent">JSON</div>
+      <div class="box accent">正则</div>
+      <div class="box accent">Color</div>
+      <div class="box accent">Base64</div>
+      <div class="box accent">Hash</div>
+    </div>
+    <div style="text-align:center;color:var(--ink-mute);margin:4px 0 8px;"> ↓ 点击上方 tab 切换，下方为工具内容区</div>
+    <div class="box span-3"> [当前工具的输入/输出区]  </div>
+  </div>
+
+  <h4>工具清单</h4>
+  <table>
+    <thead><tr><th>工具</th><th>输入</th><th>输出</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr><td><code>时间戳</code></td><td>日期 或 Unix int</td><td>相互转换 + ISO 格式</td><td>iOS 开发调试必备</td></tr>
+      <tr><td><code>JSON</code></td><td>原始 JSON 字符串</td><td>格式化 / 压缩 / 验证</td><td>一键美化 + 错误行定位</td></tr>
+      <tr><td><code>正则</code></td><td>pattern + test string</td><td>匹配结果高亮 + 捕获组</td><td>JS RegExp 语法</td></tr>
+      <tr><td><code>Color</code></td><td>HEX / RGB / Swift Color</td><td>相互转换</td><td>输出 Swift <code>UIColor(red:,green:,blue:)</code> 代码</td></tr>
+      <tr><td><code>Base64</code></td><td>原始字符串</td><td>Encode / Decode</td><td>—</td></tr>
+      <tr><td><code>Hash</code></td><td>字符串</td><td>MD5 / SHA1 / SHA256</td><td>纯客户端实现</td></tr>
+    </tbody>
+  </table>
+
+  <h4>Processing Rules</h4>
+  <ul>
+    <li>工具切换使用一个容器，只渲染当前激活的工具</li>
+    <li>所有输入框都有「清空」和「复制结果」按钮</li>
+    <li>工具状态（当前 tab、输入值）<strong>不持久化</strong>，刷新即重置</li>
+    <li>JSON 格式化错误时，在下方红色提示具体行列号</li>
+    <li>Color 转换：HEX <code>#RRGGBB</code> → RGB(255,0,128) → <code>UIColor(red:1.0, green:0, blue:0.5, alpha:1.0)</code></li>
+    <li>正则：实时匹配（<code>oninput</code>），高亮匹配文本，显示所有捕获组</li>
+  </ul>
+
+  <h4>Color 转换示例输出</h4>
+  <div class="section-card" style="background:rgba(255,255,255,0.02);">
+    <p>输入：<code>#FF6B9D</code></p>
+    <p>输出：<code>UIColor(red: 1.0, green: 0.42, blue: 0.62, alpha: 1.0)</code></p>
+    <p>输出：<code>CGColor → 255, 107, 157</code></p>
+  </div>
+</div>
+
+<!-- 模块 4: Task Board -->
+<h3 id="m-todos"><span class="requirement-id">FR-04</span>任务管理 Task Board</h3>
+<div class="section-card">
+  <h4>Purpose</h4>
+  <p>按项目分组的 Todo 列表。程序员的任务天然归属某个项目——跨项目混合的 flat list 太混乱。</p>
+
+  <h4>Layout</h4>
+  <div class="wireframe">
+    <div class="row">
+      <div class="box span-2 accent"> 任务面板  </div>
+      <div class="box"> ＋ 添加任务  </div>
+    </div>
+    <div class="box span-3">
+      <strong>📱 iOS-App</strong>  · 3 项待办<br>
+      · [ ] 实现登录流程<br>
+      · [ ] 修复 #123 crash<br>
+      · [x] 添加单元测试<br>
+    </div>
+    <div class="box span-3">
+      <strong>🌐 Web-Dashboard</strong>  · 1 项待办<br>
+      · [ ] 部署到生产环境<br>
+    </div>
+  </div>
+
+  <h4>Fields</h4>
+  <table>
+    <thead><tr><th>字段</th><th>类型</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr><td>projectId</td><td>ref</td><td>归属的项目（必填）</td></tr>
+      <tr><td>title</td><td>string</td><td>任务内容</td></tr>
+      <tr><td>done</td><td>boolean</td><td>完成状态</td></tr>
+      <tr><td>priority</td><td>enum</td><td>low / medium / high（可选）</td></tr>
+      <tr><td>created</td><td>timestamp</td><td>自动生成</td></tr>
+    </tbody>
+  </table>
+
+  <h4>Processing Rules</h4>
+  <ul>
+    <li>任务按 <code>projectId</code> 分组，组内按优先级 → 创建时间排序</li>
+    <li>勾选/取消勾选 → 实时保存，项目卡片上的"待办数"联动更新</li>
+    <li>新增任务时必须选择归属项目（从已有项目下拉选择）</li>
+    <li>完成的任务默认折叠到"已完成"区域，点击展开</li>
+    <li>批量操作：一键清除所有已完成项</li>
+  </ul>
+
+  <h4>States</h4>
+  <div class="rule"><strong>无项目时添加任务</strong> → 弹出 "请先创建项目" 的引导 → 跳转项目模块的添加按钮</div>
+  <div class="rule"><strong>项目删除</strong> → 确认弹窗中提示 "将同时删除该项目下所有任务"，勾选确认后才执行</div>
+</div>
+
+<!-- 模块 5: Snippets -->
+<h3 id="m-snippets"><span class="requirement-id">FR-05</span>代码片段 Snippets</h3>
+<div class="section-card">
+  <h4>Purpose</h4>
+  <p>开发中经常发现好代码想保存——比如 Swift 扩展、正则表达式、Xcode 配置。这个模块就是个人代码片段库。</p>
+
+  <h4>Layout</h4>
+  <div class="wireframe">
+    <div class="row">
+      <div class="box span-2 accent"> 代码片段  </div>
+      <div class="box"> 🔍 搜索  </div>
+      <div class="box"> ＋ 新建  </div>
+    </div>
+    <div class="box span-3">
+      <strong>UIColor Extension</strong>  <span style="color:#38bdf8;font-size:12px;">swift</span>  <span style="color:#fbbf24;font-size:12px;">iOS, color</span><br>
+      <code style="display:block;margin-top:6px;background:rgba(0,0,0,0.3);padding:10px;border-radius:6px;">
+extension UIColor {<br>&nbsp;&nbsp;convenience init(hex: UInt32) { ... }<br>}
+      </code>
+    </div>
+  </div>
+
+  <h4>Fields</h4>
+  <table>
+    <thead><tr><th>字段</th><th>类型</th><th>可选值</th></tr></thead>
+    <tbody>
+      <tr><td>title</td><td>string</td><td>—</td></tr>
+      <tr><td>code</td><td>string</td><td>多行文本</td></tr>
+      <tr><td>language</td><td>enum</td><td>swift / objective-c / python / javascript / typescript / shell / html / css / other</td></tr>
+      <tr><td>tags</td><td>string[]</td><td>自由标签</td></tr>
+      <tr><td>created</td><td>timestamp</td><td>自动生成</td></tr>
+    </tbody>
+  </table>
+
+  <h4>Processing Rules</h4>
+  <ul>
+    <li>搜索框对 title + tags 做实时模糊匹配（大小写不敏感）</li>
+    <li>语言标签用不同颜色展示（swift=橙, python=蓝, shell=灰…）</li>
+    <li>点击片段 → 展开预览，显示完整代码（等宽字体）+ 一键复制</li>
+    <li>代码区不做语法高亮（MVP 阶段），但保留 language 元数据</li>
+    <li>空状态提示："还没有片段，把好代码存下来吧"</li>
+  </ul>
+</div>
+
+<!-- 模块 6: Learning -->
+<h3 id="m-learning"><span class="requirement-id">FR-06</span>学习追踪 Learning</h3>
+<div class="section-card">
+  <h4>Purpose</h4>
+  <p>程序员需要持续学习。这个模块追踪"正在学习的技术"，不是番茄钟式的打卡，而是简单的进度追踪。</p>
+
+  <h4>Layout</h4>
+  <div class="wireframe">
+    <div class="row">
+      <div class="box span-2 accent"> 学习追踪  </div>
+      <div class="box"> ＋ 添加  </div>
+    </div>
+    <div class="box span-3">
+      <strong>Swift Concurrency</strong>  · ⭐⭐☆☆☆  · 3 / 5 章节<br>
+      <div style="background:rgba(255,255,255,0.08);height:6px;border-radius:3px;margin-top:6px;">
+        <div style="background:linear-gradient(90deg,#a78bfa,#38bdf8);width:60%;height:100%;border-radius:3px;"></div>
+      </div>
+    </div>
+  </div>
+
+  <h4>Fields</h4>
+  <table>
+    <thead><tr><th>字段</th><th>类型</th><th>说明</th></tr></thead>
+    <tbody>
+      <tr><td>title</td><td>string</td><td>技术名 / 课程名</td></tr>
+      <tr><td>category</td><td>enum</td><td>iOS / Frontend / Backend / DevOps / Other</td></tr>
+      <tr><td>progress</td><td>0-100</td><td>百分比，手动更新</td></tr>
+      <tr><td>priority</td><td>0-5</td><td>星数，表示当前关注度</td></tr>
+    </tbody>
+  </table>
+
+  <h4>Processing Rules</h4>
+  <ul>
+    <li>按 priority 降序排列，priority 相同按 progress 降序</li>
+    <li>进度条颜色渐变：0→灰, 30→紫, 70→天蓝, 100→绿</li>
+    <li>点击星标切换 priority（0→1→2→3→4→5→0 循环）</li>
+    <li>完成（progress=100%）的条目自动移到"已掌握"区域，灰显</li>
+    <li>不做任何自动追踪，完全手动更新——MVP 保持简单</li>
+  </ul>
+</div>
+
+<!-- 模块 7: Quick Links -->
+<h3 id="m-shortcuts"><span class="requirement-id">FR-07</span>快捷入口 Quick Links</h3>
+<div class="section-card">
+  <h4>Purpose</h4>
+  <p>程序员高频访问的网站和工具入口。默认预置开发相关的链接，用户可自定义。</p>
+
+  <h4>默认预置</h4>
+  <table>
+    <thead><tr><th>分组</th><th>默认链接</th></tr></thead>
+    <tbody>
+      <tr><td><strong>开发工具</strong></td><td>GitHub · Stack Overflow · DevDocs · Raycast</td></tr>
+      <tr><td><strong>iOS 文档</strong></td><td>Apple Dev · Swift Doc · SwiftUI Tutorials</td></tr>
+      <tr><td><strong>其他</strong></td><td>MDN · Google · YouTube · Notion</td></tr>
+    </tbody>
+  </table>
+
+  <h4>Processing Rules</h4>
+  <ul>
+    <li>分组展示，每组有标题</li>
+    <li>用户可添加/编辑/删除链接和分组</li>
+    <li>图标支持 emoji（MVP 不用自动抓 favicon）</li>
+    <li>与 v1 的快捷链接模块逻辑一致，仅增加了分组能力</li>
+  </ul>
+</div>
+
+<!-- ========== 6. 共享规则 ========== -->
+<h2 id="shared">6. 共享规则</h2>
+
+<div class="section-card">
+  <h4>存储</h4>
+  <ul>
+    <li>所有持久化数据通过 <code>localStorage</code> 存储，key 前缀 <code>dev_</code></li>
+    <li>每次写操作后立即同步，无 debounce（避免数据丢失）</li>
+    <li>空数据安全：任何模块 localStorage 为空时展示默认预置或引导文案</li>
+  </ul>
+
+  <h4>键盘快捷键</h4>
+  <table>
+    <thead><tr><th>快捷键</th><th>动作</th></tr></thead>
+    <tbody>
+      <tr><td><code>Esc</code></td><td>关闭任何打开的 Modal</td></tr>
+      <tr><td><code>/</code>（focus 在 Snippets 时）</td><td>聚焦搜索框</td></tr>
+      <tr><td><code>Enter</code>（表单内）</td><td>提交表单</td></tr>
+    </tbody>
+  </table>
+
+  <h4>确认弹窗</h4>
+  <ul>
+    <li>所有删除操作必须有确认弹窗</li>
+    <li>批量删除项目关联的 Task 时，弹窗内容必须显式提及 "将同时删除 N 个任务"</li>
+  </ul>
+
+  <h4>响应式</h4>
+  <ul>
+    <li><code>≥ 1024px</code>：3 列网格，Project/Tool/Snippets 三栏并列</li>
+    <li><code>640–1023px</code>：2 列网格，任务面板跨两列</li>
+    <li><code>≤ 639px</code>：单列堆叠</li>
+  </ul>
+
+  <h4>无障碍</h4>
+  <ul>
+    <li>所有可交互元素有可见的 focus ring</li>
+    <li>支持 <code>prefers-reduced-motion</code>，禁用非必要动画</li>
+    <li>颜色对比度 ≥ WCAG AA（4.5:1）</li>
+  </ul>
+</div>
+
+<div class="divider"></div>
+<p style="text-align:center;color:var(--ink-mute);font-family:var(--font-mono);font-size:11px;">— END OF PRD —</p>
+
+</body>
+</html>

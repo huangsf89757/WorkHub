@@ -1,0 +1,293 @@
+/* page-ext-detail.js — 通用扩展详情系统页
+ *
+ * 目标：任意扩展（已安装 registry / 规划 features / 内核系统页）都自动拥有详情页。
+ * 入口：扩展中心每一行的「详情」。三 Tab：介绍 / README / 预览。
+ * 数据全部来自现有契约；扩展可选提供 readme（Markdown）覆盖自动生成的骨架。
+ * 零额外注册：新扩展只要进了 registry 或 features，详情页即自动可用。
+ */
+import {
+  el, icons, router, bus, registerSystemPage,
+  registry, getPlannedFeatures,
+  getActiveSkin, getSkinMountPoints, placementOf, resolveMount, ZONES,
+} from './core.js';
+import { renderMarkdown } from './md.js';
+
+let activeExtId = null;
+let activeTab = 'intro';
+
+const HOOKS = [
+  ['badge',  'badge()',  '导航角标',    'left / top 导航项显示计数'],
+  ['home',   'home(ctx)', '主视图',     'center 区主内容'],
+  ['detail', 'detail(id,ctx)', '详情视图', 'center 区单条记录编辑'],
+  ['panel',  'panel(ctx)', '功能面板',   'right 区统计与属性'],
+  ['status', 'status(ctx)', '状态条',    'bottom 区实时状态'],
+];
+
+/* ---------- 统一元数据：三类扩展归一为同一结构 ---------- */
+const SYSTEM_META = {
+  'ext-center': {
+    id: 'ext-center', name: '扩展中心', icon: icons.puzzle, kind: 'system',
+    desc: '内核系统页：枚举已安装与规划中的扩展，查看挂载点分布并管理启用状态。',
+    group: '内核系统页', order: '—', mounts: ['center'], hooks: [],
+    docFile: 'docs/architecture.md',
+  },
+  'settings': {
+    id: 'settings', name: '设置', icon: icons.settings, kind: 'system',
+    desc: '内核系统页：主题、界面样式与设备同步信息。',
+    group: '内核系统页', order: '—', mounts: ['center'], hooks: [],
+    docFile: 'docs/README.md',
+  },
+};
+
+/** 已安装扩展挂载区：placement + stage 实物 / skinMount 反查 */
+function installedMounts(ext) {
+  const out = [];
+  const skin = getActiveSkin();
+  const place = placementOf(ext);
+  if (place.zone === 'top') out.push('top');
+  else if (place.zone === 'left') out.push('left');
+  // skinMount 型（3D 实物 / classic 左栏底部）按配置反查
+  const points = getSkinMountPoints(skin).filter(p => skin?.layout === 'stage' || p.via === 'skinMount');
+  for (const p of points) if (resolveMount(skin, p) === ext.id) out.push(p.name);
+  if (!out.length) out.push('center');
+  return [...new Set(out)];
+}
+
+function makeReadme(info) {
+  const hookRows = HOOKS.map(([key, sig, label, zone]) =>
+    `| \`${sig}\` | ${label} | ${info.hooks.includes(key) ? '✅ 已实现' : '—'} | ${zone} |`).join('\n');
+  return [
+    `# ${info.name}`,
+    '',
+    `> ${info.desc || '暂无描述。'}`,
+    '',
+    `## 状态`,
+    '',
+    `- 类型：**${info.kindLabel}**`,
+    `- 分组：${info.group}`,
+    `- 挂载：${info.mounts.map(m => ZONES[m]?.label || m).join('、')}`,
+    info.priority ? `- 优先级 / 顺序：${info.priority}` : '',
+    '',
+    `## 扩展契约`,
+    '',
+    '通过 \`registry.add({...})\` 自注册，按需实现下列钩子：',
+    '',
+    '| 钩子 | 作用 | 状态 | 渲染区 |',
+    '|---|---|---|---|',
+    hookRows,
+    '',
+    '## 接入方式',
+    '',
+    '```js',
+    `// js/ext-${info.id}.js`,
+    `registry.add({ id: '${info.id}', name: '${info.name}', /* ... */ });`,
+    `// js/main.js 顶部 import 一次即完成接入`,
+    "import './ext-" + info.id + ".js';",
+    '```',
+    '',
+    '---',
+    '',
+    '_此 README 由内核根据扩展元数据自动生成；扩展可通过提供 `readme` 字段覆盖。_',
+  ].filter(x => x !== '').join('\n');
+}
+
+/** 核心：把任意 id 归一为详情元数据；未知返回 null */
+export function extInfo(id) {
+  if (SYSTEM_META[id]) {
+    const m = SYSTEM_META[id];
+    return { ...m, kindLabel: '内核系统页', status: '系统页', readme: m.readme || makeReadme({ ...m, hooks: [] }), links: [] };
+  }
+  const ext = registry.get(id);
+  if (ext) {
+    const info = {
+      id, name: ext.name || id, icon: ext.icon || icons.puzzle, kind: 'installed',
+      kindLabel: '已安装扩展', status: '已安装', desc: ext.desc || '',
+      group: ext.group === 'main' ? '主菜单' : (ext.group || '主菜单'),
+      priority: ext.order != null ? `order ${ext.order}` : '',
+      mounts: ext.mounts?.length ? installedMounts(ext) : installedMounts(ext),
+      hooks: HOOKS.filter(([key]) => typeof ext[key] === 'function').map(([key]) => key),
+      docFile: ext.docFile || `docs/extensions/${id}.md`,
+      ext,
+    };
+    return {
+      ...info,
+      readme: typeof ext.readme === 'function' ? ext.readme() : (ext.readme || makeReadme(info)),
+      links: ext.links || [],
+    };
+  }
+  const planned = getPlannedFeatures().find(f => f.id === id);
+  if (planned) {
+    const info = {
+      id, name: planned.name || id, icon: planned.icon || icons.puzzle, kind: 'planned',
+      kindLabel: '规划中扩展', status: '规划中', desc: planned.desc || '',
+      group: planned.group || '未分组', priority: planned.priority || '—',
+      mounts: planned.mounts || [], hooks: planned.hooks || [],
+      docFile: planned.docFile || 'FEATURES.md',
+    };
+    return {
+      ...info,
+      readme: typeof planned.readme === 'function' ? planned.readme()
+        : (planned.readme || makeReadme(info) + '\n\n> ⬜ 该扩展尚在规划中，以上为预期契约。'),
+      links: planned.links || [],
+    };
+  }
+  return null;
+}
+
+/* ---------- 视图 ---------- */
+const kv = (k, v, mono) => el('div', { class: 'ed-kv-row' },
+  el('span', { class: 'ed-kv-k' }, k),
+  el('span', { class: 'ed-kv-v' + (mono ? ' mono' : '') }, String(v)));
+
+function introView(info) {
+  const statusCls = info.kind === 'installed' ? 'ok' : info.kind === 'system' ? '' : 'warn';
+  const body = el('div', { class: 'sd-pad' },
+    el('div', { class: 'ed-kv' },
+      kv('名称', info.name),
+      kv('扩展 ID', info.id, true),
+      kv('状态', info.status),
+      kv('类型', info.kindLabel),
+      kv('分组', info.group),
+      kv('优先级 / 顺序', info.priority || '—'),
+      kv('挂载位置', info.mounts.map(m => ZONES[m]?.label || m).join('、') || '—'),
+      kv('已实现钩子', info.hooks.length ? info.hooks.join(' / ') : '—', true),
+      kv('文档', info.docFile, true)),
+    el('div', { class: 'sd-contract' },
+      el('span', {}, '注册　　', el('b', {}, 'registry.add()'), ' → ', el('b', {}, `js/ext-${info.id}.js`)),
+      el('span', {}, '装配　　', el('b', {}, 'main.js'), ' 顶部 import 一次'),
+      el('span', {}, '契约　　', el('b', {}, 'home / detail / panel / status / badge')),
+      el('span', {}, '数据　　', el('b', {}, 'declareDomain()'), ' + meta/outbox')),
+    info.links.length
+      ? el('div', { class: 'ed-links' }, info.links.map(l =>
+          el('a', { class: 'btn', href: l.href, target: '_blank', rel: 'noopener' },
+            el('span', { class: 'icon', html: icons.external }), l.label)))
+      : null);
+  return el('div', { class: 'panel' },
+    el('div', { class: 'panel-head' },
+      el('h3', {}, '扩展介绍'),
+      el('span', { class: 'pill ' + statusCls }, info.status)),
+    body);
+}
+
+function readmeView(info) {
+  const link = el('a', {
+    class: 'ed-doc-link', href: info.docFile, target: '_blank', rel: 'noopener',
+    title: '在新标签打开原始 Markdown 文档',
+  }, el('span', { class: 'icon', html: icons.file }), info.docFile);
+  return el('div', { class: 'panel' },
+    el('div', { class: 'panel-head' },
+      el('h3', {}, 'README'),
+      el('span', { class: 'sd-count' }, 'Markdown')),
+    el('div', { class: 'sd-pad md-body' },
+      el('div', { class: 'ed-doc-bar' }, link),
+      ...renderMarkdown(info.readme)));
+}
+
+function previewView(info) {
+  const skin = getActiveSkin();
+  const box = el('div', { class: 'panel' },
+    el('div', { class: 'panel-head' }, el('h3', {}, '预览 · ' + info.name),
+      el('span', { class: 'sd-count' }, '示意，非实际渲染')),
+    el('div', { class: 'sd-pad' }));
+  const body = box.lastChild;
+
+  // 五区示意：高亮该扩展挂载区
+  const zoneBox = el('div', { class: 'sd-pv-classic' });
+  const hl = id => info.mounts.includes(id) ? ' hit' : '';
+  zoneBox.append(
+    el('div', { class: 'sd-pv-zone top' + hl('top') }, '顶部栏 · top'),
+    el('div', { class: 'sd-pv-zone left' + hl('left') }, '左侧栏 · left'),
+    el('div', { class: 'sd-pv-center' + hl('center') },
+      el('span', { class: 'icon', html: info.icon || icons.puzzle }),
+      el('span', {}, info.name)),
+    el('div', { class: 'sd-pv-zone right' + hl('right') }, '右侧栏 · right'),
+    el('div', { class: 'sd-pv-zone bottom' + hl('bottom') }, '底部栏 · bottom'));
+  body.append(zoneBox,
+    el('div', { class: 'sd-pv-legend' },
+      el('span', {}, el('i', { class: 'a' }), '当前挂载区'),
+      el('span', {}, el('i', { class: 'b' }), '其它区')),
+    el('p', { class: 'hint' }, `当前界面样式「${skin?.name || '默认'}」· 高亮区表示该扩展的挂载位置`));
+
+  // 能力矩阵
+  const hooks = HOOKS.map(([key, sig, label, zone]) => {
+    const on = info.hooks.includes(key);
+    return el('div', { class: 'ed-hook' + (on ? ' on' : '') },
+      el('span', { class: 'icon', html: on ? icons.check : icons.file }),
+      el('span', { class: 'ed-hook-sig mono' }, sig),
+      el('span', { class: 'ed-hook-zone' }, zone),
+      el('span', { class: 'ed-hook-state' }, on ? '已实现' : '未实现'));
+  });
+  body.append(el('div', { class: 'ed-hook-title' }, '能力矩阵 · 五钩子'),
+    el('div', { class: 'ed-hooks' }, hooks));
+
+  // 已安装可直接打开
+  if (info.kind === 'installed') {
+    body.append(el('div', { class: 'ed-preview-actions' },
+      el('button', {
+        class: 'btn primary',
+        onclick: () => router.go(info.id),
+      }, el('span', { class: 'icon', html: icons.external }), '打开扩展')));
+  }
+  return box;
+}
+
+/* ---------- Tab 容器（复用皮肤详情页的键盘语义） ---------- */
+const TABS = [['intro', '介绍'], ['readme', 'README'], ['preview', '预览']];
+const VIEW = { intro: introView, readme: readmeView, preview: previewView };
+
+registerSystemPage('ext-detail', ctx => {
+  const id = ctx.id || activeExtId;
+  const info = extInfo(id);
+  if (!info) {
+    // 返回已上移到顶栏
+    return el('div', { class: 'page' },
+      el('div', { class: 'empty big' }, '未找到该扩展的详情数据'));
+  }
+  activeExtId = info.id;
+
+  const page = el('div', { class: 'page sd-page' },
+    // 返回与标题已上移到顶栏；内容区只保留实体展示与操作
+    el('div', { class: 'sd-header' },
+      el('div', { class: 'sd-hero' },
+        el('div', { class: 'sd-hero-icon' }, el('span', { class: 'icon', html: info.icon || icons.puzzle })),
+        el('div', {}, el('h1', {}, info.name),
+          el('div', { class: 'sub mono' }, info.id + ' · ' + info.kindLabel))),
+      el('div', { class: 'sd-actions' },
+        el('span', { class: 'pill ' + (info.kind === 'installed' ? 'ok' : info.kind === 'planned' ? 'warn' : '') }, info.status))),
+    el('div', { class: 'sd-tabs', role: 'tablist', 'aria-label': '扩展详情' },
+      ...TABS.map(([tid, label], i, arr) =>
+        el('button', {
+          class: 'sd-tab' + (activeTab === tid ? ' on' : ''), role: 'tab',
+          id: 'ed-tab-' + tid, 'aria-controls': 'ed-panel-' + tid,
+          'aria-selected': String(activeTab === tid),
+          tabindex: activeTab === tid ? '0' : '-1',
+          onclick: () => { activeTab = tid; rerender(); },
+          onkeydown: e => {
+            if (e.key !== 'ArrowRight' && e.key !== 'ArrowLeft') return;
+            e.preventDefault();
+            const dir = e.key === 'ArrowRight' ? 1 : -1;
+            activeTab = arr[(i + dir + arr.length) % arr.length][0];
+            rerender();
+            document.getElementById('ed-tab-' + activeTab)?.focus();
+          },
+        }, label))),
+    el('div', {
+      class: 'sd-content', role: 'tabpanel',
+      id: 'ed-panel-' + activeTab, 'aria-labelledby': 'ed-tab-' + activeTab,
+    }));
+  page.lastChild.append(VIEW[activeTab](info));
+  return page;
+}, {
+  title: ctx => extInfo(ctx.id || activeExtId)?.name || '扩展详情',
+  backLabel: '返回扩展中心',
+  back: () => router.go('ext-center'),
+});
+
+function rerender() { bus.emit('route'); }
+
+/** 供扩展中心调用：进入某扩展详情 */
+export function openExtDetail(id) {
+  activeExtId = id;
+  activeTab = 'intro';
+  router.open('ext-detail', id);
+}

@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>WorkHub</title>
+<meta name="description" content="WorkHub · 零构建、本地优先的扩展式效率工作台，五区布局与可插拔界面样式。">
+<meta name="theme-color" content="#181818">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="WorkHub">
+<link rel="manifest" href="manifest.json">
+<link rel="apple-touch-icon" href="icon.svg">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231f1f1f'/%3E%3Cpath d='M13 10l-5 6 5 6M19 10l5 6-5 6' stroke='%234ec9b0' stroke-width='2.2' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="style.css">
+</head>
+<body data-theme="dark">
+
+<!-- 顶部栏 · 主菜单一级入口 -->
+<header class="zone zone-top" id="zoneTop">
+  <div class="top-left">
+    <button id="navToggle" class="icon-btn nav-toggle" title="菜单" aria-label="打开菜单">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+    </button>
+    <div class="brand">WorkHub</div>
+    <!-- 二级系统页顶栏：返回按钮 + 页面标题（替换 brand） -->
+    <div class="top-system" id="topSystem" aria-hidden="true">
+      <button class="back-btn top-back" id="btnTopBack" title="返回" aria-label="返回">
+        <span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="m14.5 6-6 6 6 6"/></svg></span>
+        <span class="top-back-label">返回</span>
+      </button>
+      <div class="top-system-title" id="topSystemTitle"></div>
+    </div>
+  </div>
+  <div class="top-mounts" id="zoneTopMounts"></div>
+  <div class="top-right">
+    <button id="btnUser" class="user-chip" title="个人面板" aria-label="打开个人面板">HSF</button>
+  </div>
+</header>
+
+<div class="backdrop" id="backdrop"></div>
+
+<!-- 三栏工作区：左主菜单 / 中主内容 / 右功能菜单 -->
+<div class="app">
+  <aside class="zone zone-left" id="zoneLeft"></aside>
+  <main class="zone zone-center" id="zoneCenter"></main>
+  <aside class="zone zone-right" id="zoneRight" hidden>
+    <button class="zone-close" id="zoneRightClose" title="收起功能面板" aria-label="收起">×</button>
+    <div class="zone-right-body" id="zoneRightBody"></div>
+  </aside>
+</div>
+
+<!-- 底部栏 · 扩展功能状态条 -->
+<footer class="zone zone-bottom" id="zoneBottom">
+  <div class="bottom-label" id="zoneBottomLabel"></div>
+  <div class="bottom-hint">
+    <span class="kbd" id="hintSwitchExt">⌘1-9</span> 切换扩展
+    <span class="kbd" id="hintBack">Esc</span> 返回
+    <span class="kbd" id="hintSettings">⌘,</span> 设置
+  </div>
+</footer>
+
+<script src="vendor/sqljs/sql-wasm.js"></script>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

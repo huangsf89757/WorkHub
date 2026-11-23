@@ -1,0 +1,14 @@
+{
+  "name": "WorkHub",
+  "short_name": "WorkHub",
+  "description": "程序员效率工作台：项目、待办、代码片段、笔记、学习、工具",
+  "start_url": "/",
+  "scope": "/",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#181818",
+  "theme_color": "#181818",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}
