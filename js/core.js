@@ -20,87 +20,8 @@
 import icons from './icons.js';
 export { icons };
 
-/* ============================================================
-   1. 系统偏好与 localStorage key 规范（v5：与 SQLite 表名对应）
-   ------------------------------------------------------------
-   逻辑 key（业务代码传入，如 'todos'/'theme'）→ 物理 key（localStorage 实际存储）：
-     · 业务域  → wh_<表名>，如 todos → wh_ext_todo_items
-     · 偏好/身份 → wh_sys_settings_<key>，如 theme → wh_sys_settings_theme
-   映射只在物理存储层发生，bus.emit('pref') 仍发逻辑 key（db.js 依赖）。
-   调用方零改动；老 key 由 migrateStorageKeys() 在启动时平滑迁移。
-   ============================================================ */
-export const PREFIX = 'wh_';
-
-/** 业务域逻辑 key → SQLite 表名（与 db.js TABLES 保持一致） */
-const DOMAIN_TABLE = Object.freeze({
-  todos: 'ext_todo_items',
-  todoGroups: 'ext_todo_groups',
-  projects: 'ext_projects',
-  tasks: 'ext_project_tasks',
-  snippets: 'ext_snippets',
-  complaints: 'ext_complaints',
-  notes: 'ext_notes_nodes',
-  posts: 'ext_blog_posts',
-  learning: 'ext_learning',
-});
-
-/** 偏好/身份逻辑 key（存进 sys_settings 表命名空间） */
-const PREF_KEYS = Object.freeze(new Set([
-  'theme', 'skin', 'skinMounts', 'skinPoints', 'menuLayout',
-  'extEnabled', 'rightCollapsed', 'shortcuts', 'searchRules',
-  'links', // 无独立表的通用 KV，归入系统设置命名空间
-  'currentUserId', 'currentUserName', 'currentHouseholdId', 'currentHouseholdName', 'defaultScope',
-  'deviceId',
-]));
-
-/** 逻辑 key → 物理 localStorage key */
-export function storageKey(logical) {
-  if (DOMAIN_TABLE[logical]) return PREFIX + DOMAIN_TABLE[logical];       // 业务域 → 表名
-  if (PREF_KEYS.has(logical)) return PREFIX + 'sys_settings_' + logical; // 偏好/身份 → sys_settings
-  return PREFIX + logical; // 未登记的未来扩展域：保持兼容
-}
-
-/**
- * 老 key → 新 key 迁移（幂等）：wh_<logical> → storageKey(logical)。
- * 新 key 已存在时不覆盖；迁移成功才删老 key。返回迁移条数。
- */
-export function migrateStorageKeys() {
-  let n = 0;
-  const move = (oldKey, newKey) => {
-    if (oldKey === newKey) return;
-    let raw = null;
-    try { raw = localStorage.getItem(oldKey); } catch { return; }
-    if (raw === null) return;
-    let newExists = false;
-    try { newExists = localStorage.getItem(newKey) !== null; } catch { /* 降级 */ }
-    if (!newExists) {
-      try { localStorage.setItem(newKey, raw); n++; } catch { return; }
-    }
-    try { localStorage.removeItem(oldKey); } catch { /* 降级 */ }
-  };
-  // 业务域：老 wh_todos → 新 wh_ext_todo_items
-  for (const logical of Object.keys(DOMAIN_TABLE)) move(PREFIX + logical, storageKey(logical));
-  // 偏好/身份：老 wh_theme → 新 wh_sys_settings_theme
-  for (const logical of PREF_KEYS) move(PREFIX + logical, storageKey(logical));
-  return n;
-}
-
-export const store = {
-  get(key, def) {
-    try {
-      const raw = localStorage.getItem(storageKey(key));
-      return raw === null ? def : JSON.parse(raw);
-    } catch { return def; }
-  },
-  set(key, value) {
-    try { localStorage.setItem(storageKey(key), JSON.stringify(value)); } catch { /* 隐私模式/配额满：静默降级 */ }
-    // 基座偏好变更通知存储层镜像落库（db.js 订阅）；事件仍发逻辑 key
-    bus.emit('pref', { key, value });
-  },
-};
-
-// 模块加载即迁移老 key —— 必须早于 data.js 的 state 初始化（它在 import 时就 store.get）
-try { migrateStorageKeys(); } catch { /* 存储不可用则跳过，静默降级 */ }
+import { PREFIX, storageKey, migrateStorageKeys, store, bus, registry } from './base.js';
+export { PREFIX, storageKey, migrateStorageKeys, store, bus, registry };
 
 /* ============================================================
    1b. 快捷键配置（可自定义，存 wh_shortcuts）
@@ -189,20 +110,6 @@ export function resetShortcuts() {
   store.set('shortcuts', { ...DEFAULT_SHORTCUTS });
   bus.emit('shortcuts');
 }
-
-/* ============================================================
-   2. 事件总线
-   ============================================================ */
-export const bus = {
-  map: new Map(),
-  on(event, fn) {
-    if (!this.map.has(event)) this.map.set(event, new Set());
-    this.map.get(event).add(fn);
-    return () => this.off(event, fn);
-  },
-  off(event, fn) { this.map.get(event)?.delete(fn); },
-  emit(event, data) { this.map.get(event)?.forEach(fn => fn(data)); },
-};
 
 /* ============================================================
    3. DOM 构建器（不用 innerHTML 拼接用户数据）
@@ -314,14 +221,6 @@ export const PANEL_ZONES = ['right', 'bottom'];
 /* ============================================================
    5. 业务扩展注册表 + 规划中清单
    ============================================================ */
-export const registry = {
-  list: [],
-  add(ext) {
-    this.list.push(ext);
-    this.list.sort((a, b) => (a.order ?? 99) - (b.order ?? 99));
-  },
-  get(id) { return this.list.find(e => e.id === id); },
-};
 
 let plannedFeatures = [];
 export function setPlannedFeatures(list) { plannedFeatures = list; }
@@ -910,6 +809,52 @@ export function leaveSystem() {
   else { router.extId = null; router.mode = 'home'; router.id = null; bus.emit('route'); }
 }
 
+/* ---------- 数据变更重绘：保留焦点、光标位置与滚动位置 ----------
+   五区重绘是整体重建 DOM。若不处理，输入中的光标/滚动会被重置。
+   重绘前记录「容器 + 第 N 个可输入控件 + 选区」与各滚动容器的 scrollTop，
+   重绘后按相同位置恢复。结构变化导致位置对不上时放弃恢复（退化为旧行为）。 */
+const EDITABLE = 'input,textarea,select,[contenteditable="true"]';
+const RESTORE_ZONES = ['zoneCenter', 'zoneRight', 'zoneLeft', 'zoneTop'];
+function captureUiState() {
+  const state = { focus: null, scrolls: [] };
+  const active = document.activeElement;
+  for (const id of RESTORE_ZONES) {
+    const zone = document.getElementById(id);
+    if (!zone) continue;
+    if (active && zone.contains(active) && active.matches?.(EDITABLE)) {
+      const index = [...zone.querySelectorAll(EDITABLE)].indexOf(active);
+      if (index >= 0) {
+        state.focus = {
+          id, index, tag: active.tagName,
+          start: active.selectionStart ?? null, end: active.selectionEnd ?? null,
+        };
+      }
+    }
+    if (zone.scrollTop > 0) state.scrolls.push({ id, index: -1, top: zone.scrollTop });
+    [...zone.querySelectorAll('*')].forEach((node, index) => {
+      if (node.scrollTop > 0) state.scrolls.push({ id, index, tag: node.tagName, top: node.scrollTop });
+    });
+  }
+  return state;
+}
+function restoreUiState(state) {
+  for (const s of state.scrolls) {
+    const zone = document.getElementById(s.id);
+    const node = s.index < 0 ? zone : zone?.querySelectorAll('*')[s.index];
+    if (node && (s.index < 0 || node.tagName === s.tag)) node.scrollTop = s.top;
+  }
+  const f = state.focus;
+  if (!f) return;
+  const node = document.getElementById(f.id)?.querySelectorAll(EDITABLE)[f.index];
+  if (!node || node.tagName !== f.tag || node.disabled) return;
+  node.focus({ preventScroll: true });
+  if (f.start != null) { try { node.setSelectionRange(f.start, f.end); } catch { /* 非文本类型无选区 */ } }
+}
+function renderPreservingUi() {
+  const saved = captureUiState();
+  renderAll();
+  restoreUiState(saved);
+}
 function renderAll() {
   applySkinLayout();
   renderLeft();
@@ -988,6 +933,13 @@ export function openUserPanel() {
    ============================================================ */
 export function boot() {
   applyTheme(store.get('theme', 'dark'));
+  // localStorage 镜像写入失败（配额满等）：SQLite 仍可保存，仅提示一次，避免用户无感知
+  let warned = false;
+  bus.on('store:error', () => {
+    if (warned) return;
+    warned = true;
+    toast('本地缓存写入失败（空间不足？）。请到 设置 → 数据与备份 导出备份');
+  });
   applySkinLayout();
 
   $('btnUser')?.addEventListener('click', openUserPanel);
@@ -999,7 +951,7 @@ export function boot() {
   }
 
   bus.on('route', renderAll);
-  bus.on('data', renderAll);
+  bus.on('data', renderPreservingUi);
 
   document.addEventListener('keydown', event => {
     const typing = /^(INPUT|TEXTAREA)$/.test(document.activeElement?.tagName || '');

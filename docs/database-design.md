@@ -684,18 +684,21 @@ core.js 模块加载        → migrateStorageKeys()（老 key 迁移，早于 d
 data.js 模块加载        → state = store.get(各逻辑 key)（从新物理 key 读）
 main.js initStorage()   → db.initDb(state):
   1. migrateTableNames()      —— 老表名 RENAME（在 SCHEMA 前）
-  2. SCHEMA                   —— CREATE TABLE IF NOT EXISTS + 版本写 v6
-  3. migrateColumns(state)    —— 幂等补列 + localStorage 回填
-  4. migrateSlimMeta()        —— v6：老库（schemaVer<6）清理 meta 中重复同步字段
-  5. v2_imported 判断         —— 老库缺标记则从 localStorage 重导；迁移库则回读 DB + 补标记
-  6. seedBase()               —— 默认用户/家庭/成员/设备幂等登记
-  7. registerBaseExtension()  —— 声明式登记扩展
-  8. hydratePrefs()           —— sys_settings 回灌本地缺失偏好
-  9. bus.on('pref') 订阅 + 全量镜像偏好
+  2. 读 prevVer               —— v6：必须在 SCHEMA 前读真实版本（关键，见下）
+  3. SCHEMA                   —— CREATE TABLE IF NOT EXISTS + 插入 version=6 行
+  4. migrateColumns(state)    —— 幂等补列 + localStorage 回填
+  5. migrateSlimMeta()        —— v6：prevVer<6 时清理 meta 重复同步字段 + 删旧版本行
+  6. v2_imported 判断         —— 老库缺标记则从 localStorage 重导；迁移库则回读 DB + 补标记
+  7. seedBase()               —— 默认用户/家庭/成员/设备幂等登记
+  8. registerBaseExtension()  —— 声明式登记扩展
+  9. hydratePrefs()           —— sys_settings 回灌本地缺失偏好
+  10. bus.on('pref') 订阅 + 全量镜像偏好
   → bus.emit('data') → 五区重绘
 ```
 
-**关键顺序**：表名迁移必须在 SCHEMA 之前，否则 SCHEMA 的 `CREATE TABLE IF NOT EXISTS` 会先建出空新表，导致"新表不存在"判据失效而跳过迁移丢数据（历史踩坑，见 [§15](#15-验证记录)）。
+**关键顺序（两处踩坑，勿调换）**：
+1. 表名迁移必须在 SCHEMA 之前，否则 `CREATE TABLE IF NOT EXISTS` 先建出空新表，导致"新表不存在"判据失效而跳过迁移丢数据。
+2. 版本读取（`prevVer`）必须在 SCHEMA 之前：SCHEMA 含无条件 `INSERT OR IGNORE version=6`（`version` 列无唯一约束，每次都会插入新行），若在 SCHEMA 之后读 `MAX(version)`，老库（含 5）会被新插入的 6 顶成 6，`schemaVer<6` 判定失效、`migrateSlimMeta()` 被静默跳过。此坑 v6 实测踩过（见 [§15](#15-验证记录)）。
 
 ---
 
@@ -742,12 +745,12 @@ WorkHub 有四类独立的幂等迁移，覆盖四个层次（表 / 列 / key / 
 | 触发 | 老库（v5 及之前）meta JSON 重复存了已提升为独立列的同步字段 |
 | 机制 | `SYNC_TABLE_PROMOTED` 登记每张表的提升字段集；`migrateSlimMeta()` 遍历各行剔除 meta 中的重复键 |
 | 表分类 | 完整四列表剔除 `updatedAt/updatedBy/deletedAt/rev`；仅提升 updated_at 表只剔除 `updatedAt` |
-| 时机 | SCHEMA 与 migrateColumns 之后，读回 state 之前 |
+| 时机 | 版本读取在 SCHEMA 之前；`migrateSlimMeta()` 在 SCHEMA + migrateColumns 之后、读回 state 之前 |
 | 幂等 | 只删 meta 中存在的键；无重复键则跳过，可重复执行 |
 
 ### 10.5 schema 版本标记
 
-`sys_schema_version` 表存当前版本号（v6），`INSERT OR IGNORE` 幂等写入。`v2_imported` 标记（`sys_settings` 中）用于历史数据导入自愈。版本判定 `schemaVer < 6` 时执行 `migrateSlimMeta()` 并升版。
+`sys_schema_version` 表存当前版本号（v6）。SCHEMA 含 `INSERT OR IGNORE ... VALUES (6)`，因 `version` 列无唯一约束，该语句每次启动都会插入新行，故**必须在 SCHEMA 之前读取 `prevVer = MAX(version)`** 作为迁移判据（`prevVer > 0 && prevVer < 6`）。迁移完成后删除 `version<6` 的旧行，避免多版本行歧义。`v2_imported` 标记（`sys_settings` 中）用于历史数据导入自愈。
 
 ---
 
@@ -874,6 +877,9 @@ GET  /sync/pull?since=<t>&deviceId=<id>                       → {domains, serv
 | 多用户：切换用户后新记录归属正确、旧记录 owner 不变 | ✅ |
 | localStorage key 规范 + 老 key 迁移不丢数据（隔离验证） | ✅ |
 | 老库表级迁移：`legacy1` 数据完整保留到新表、旧表消失 | ✅ |
+| v6 新库落库：meta 不含已提升同步字段，读回从独立列恢复 | ✅ |
+| v6 老库迁移：`migrateSlimMeta()` 清理历史 meta 重复同步字段 | ✅ |
+| v6 软删墓碑与归属字段无回归（`deletedAt` 恢复、`ownerId/scope` 保留） | ✅ |
 
 **已修复的缺陷（历史）**：
 
@@ -883,6 +889,8 @@ GET  /sync/pull?since=<t>&deviceId=<id>                       → {domains, serv
 4. **扩展启用态漂移**：`sys_extensions.enabled` 停在首次登记值 → 统一走 store 真相源 + mirrorPref 同步
 5. **表名混乱**：v4 统一前缀 + 表级迁移
 6. **多用户/key 规范**：v5 新增家庭成员表、归属 meta、key 与表名对应
+7. **同步字段双写漂移**（v6）：meta JSON 与独立列重复存同步字段，且 meta 覆盖列 → 独立列为唯一真相源、`slimMeta()` 剔除冗余字段、`fromMeta()` 列覆盖 meta
+8. **v6 迁移被静默跳过**（P0，实测）：初版在 SCHEMA 之后读 `MAX(version)`，而 SCHEMA 的无条件 `INSERT OR IGNORE version=6` 已把老库的 5 顶成 6 → `migrateSlimMeta()` 从不执行。改为 SCHEMA 之前读 `prevVer`，验证注入 v5 老库后重复字段被正确清理
 
 > **待办**：`sys_ext_mounts` 表已建但当前皮肤挂载仍走 `store.skinMounts`（sys_settings 镜像），表行数=0；多端同步正式接入时需把挂载绑定也镜像进 `sys_ext_mounts`。同理 `sys_outbox` 表的落库待 CloudAdapter 接入。
 
@@ -923,7 +931,7 @@ GET  /sync/pull?since=<t>&deviceId=<id>                       → {domains, serv
 
 ## 附录 A：完整建表 SQL
 
-> 以下为 `js/db.js` 中 `SCHEMA` 的实际内容（表名以常量代入）。版本号由 `INSERT OR IGNORE ... VALUES (5)` 写入。
+> 以下为 `js/db.js` 中 `SCHEMA` 的实际内容（表名以常量代入）。版本号由 `INSERT OR IGNORE ... VALUES (6)` 写入。
 
 ```sql
 CREATE TABLE IF NOT EXISTS sys_schema_version (version INTEGER NOT NULL);
@@ -1018,5 +1026,5 @@ CREATE INDEX IF NOT EXISTS idx_ext_project_tasks_project ON ext_project_tasks(pr
 CREATE INDEX IF NOT EXISTS idx_ext_todo_items_group ON ext_todo_items(group_id);
 CREATE INDEX IF NOT EXISTS idx_sys_outbox_pushed ON sys_outbox(pushed);
 
-INSERT OR IGNORE INTO sys_schema_version (version) VALUES (5);
+INSERT OR IGNORE INTO sys_schema_version (version) VALUES (6);
 ```

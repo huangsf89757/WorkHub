@@ -13,7 +13,18 @@
  */
 
 let adapter = null;
-export function registerAdapter(a) { adapter = a; }
+/** 扩展声明的自带表（declareDomain 的 table 选项）。适配器可能晚于扩展注册，所以先缓存再补发。 */
+const domainSpecs = new Map();
+export function registerAdapter(a) {
+  adapter = a;
+  for (const [key, spec] of domainSpecs) adapter.registerDomain?.(key, spec);
+}
+/** 扩展声明自己的持久化表：spec = { table: 'ext_<扩展id>_<名称>' }，无需修改适配器 */
+export function registerDomainStorage(key, spec) {
+  domainSpecs.set(key, spec);
+  try { adapter?.registerDomain?.(key, spec); }
+  catch (e) { console.warn('[storage] registerDomain failed', key, e); }
+}
 export const getAdapter = () => adapter;
 
 /** 未初始化适配器时静默降级，保证 UI 永不因存储不可用而崩 */
@@ -36,3 +47,22 @@ export async function flush() {
 }
 
 export const storageInfo = () => adapter?.info?.() ?? null;
+
+/* ---------- 同步 outbox 持久化（可选能力：适配器未实现则退化为仅内存） ----------
+ *   outboxAppend(entry)   entry = { seq, domain, op, record, at }
+ *   outboxAck(seqs)       推送成功 / 被合并的条目出队
+ *   outboxLoad()          启动时恢复未推送条目，按 seq 升序
+ */
+export function outboxAppend(entry) {
+  try { adapter?.outboxAppend?.(entry); }
+  catch (e) { console.warn('[storage] outboxAppend failed', e); }
+}
+export function outboxAck(seqs) {
+  if (!seqs?.length) return;
+  try { adapter?.outboxAck?.(seqs); }
+  catch (e) { console.warn('[storage] outboxAck failed', e); }
+}
+export function outboxLoad() {
+  try { return adapter?.outboxLoad?.() ?? []; }
+  catch (e) { console.warn('[storage] outboxLoad failed', e); return []; }
+}

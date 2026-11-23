@@ -10,12 +10,13 @@ import {
   el, icons, router, bus, store, registerSystemPage, toast, leaveSystem,
   themeNames, applyTheme,
   getAllSkins, getActiveSkin, setActiveSkin,
-  openPopMenu,
+  openPopMenu, openModal, fmtTime,
   SHORTCUT_ACTIONS, getShortcuts, setShortcut, resetShortcuts,
   comboFromEvent, formatShortcut,
 } from './core.js';
 import { openSkinDetail } from './page-skin-detail.js';
 import { syncSnapshot } from './sync.js';
+import { downloadBackup, readBackupFile, applyBackup, getLastBackupAt } from './backup.js';
 import platform, { PLATFORM_LABEL } from './platform.js';
 
 /* ---------- 版本信息（version.json 异步读取，失败降级） ---------- */
@@ -61,6 +62,7 @@ let sourceError = '';      // 源码校验/保存错误提示
 const CATS = [
   { id: 'account', name: '账户', icon: icons.user, desc: '身份、设备与数据同步' },
   { id: 'general', name: '通用', icon: icons.settings, desc: '启动行为、快捷键、界面样式与主题' },
+  { id: 'data', name: '数据与备份', icon: icons.inbox, desc: '导出备份、导入恢复，防止清理浏览器数据后丢失' },
   { id: 'about', name: '关于', icon: icons.info, desc: '版本信息与文档' },
 ];
 const catOf = id => CATS.find(c => c.id === id) || CATS[0];
@@ -177,6 +179,70 @@ function applySearchRules(obj) {
 /* ============================================================
    各分类的渲染（每项都是纯函数，读实时状态）
    ============================================================ */
+/* ---------- 数据与备份 ---------- */
+const DOMAIN_LABEL = { todos: '待办', todoGroups: '待办分组' };
+const countText = counts => Object.entries(counts).filter(([, n]) => n)
+  .map(([k, n]) => `${DOMAIN_LABEL[k] || k} ${n}`).join('、') || '无数据';
+function dataView() {
+  const last = getLastBackupAt();
+  const fileInput = el('input', { type: 'file', accept: 'application/json,.json', hidden: true });
+  fileInput.addEventListener('change', async () => {
+    const file = fileInput.files?.[0];
+    fileInput.value = '';
+    if (!file) return;
+    try {
+      const { obj, checked } = await readBackupFile(file);
+      confirmImport(obj, checked);
+    } catch (error) { toast('导入失败：' + error.message); }
+  });
+  return [
+    cardFor('data', '导出备份',
+      el('p', { class: 'hint' }, '浏览器存储可能被清理或损坏。定期导出备份文件，是数据唯一可靠的第二份副本。'),
+      infoRow('上次备份', last ? fmtTime(last) : '从未备份'),
+      el('div', { class: 'btn-line' },
+        el('button', {
+          class: 'btn primary',
+          onclick: () => {
+            const { name, counts } = downloadBackup();
+            toast(`已导出 ${name}（${countText(counts)}）`);
+            bus.emit('route');
+          },
+        }, '导出备份文件'))),
+    cardFor('data', '导入恢复',
+      el('p', { class: 'hint' }, '合并：与现有数据按最后修改时间合并，不会丢失较新的修改。替换：以备份为准，备份中没有的本地记录会被删除。'),
+      el('div', { class: 'btn-line' },
+        el('button', { class: 'btn', onclick: () => fileInput.click() }, '选择备份文件…')),
+      fileInput),
+  ];
+}
+function confirmImport(obj, checked) {
+  let mode = 'merge';
+  const counts = Object.fromEntries(Object.entries(checked.domains).map(([k, v]) => [k, v.length]));
+  const radio = (value, label) => el('label', { class: 'check-row' },
+    el('input', { type: 'radio', name: 'import-mode', value, checked: value === mode, onchange: () => { mode = value; } }),
+    ' ' + label);
+  const body = el('div', { class: 'settings-body' },
+    infoRow('备份时间', fmtTime(obj.exportedAt)),
+    infoRow('包含数据', countText(counts)),
+    ...(checked.skipped.length ? [infoRow('将跳过', checked.skipped.join('、') + '（对应扩展未安装）')] : []),
+    radio('merge', '合并（推荐）'),
+    radio('replace', '替换（会删除备份中没有的本地记录）'));
+  openModal('导入备份', body, [
+    { label: '取消' },
+    {
+      label: '导入', primary: true,
+      onClick: close => {
+        try {
+          const { report } = applyBackup(obj, { mode });
+          const sum = Object.values(report).reduce((a, r) => a + r.added + r.updated + r.removed, 0);
+          toast(`导入完成：${sum} 条变更`);
+          close();
+          bus.emit('route');
+        } catch (error) { toast('导入失败：' + error.message); }
+      },
+    },
+  ]);
+}
 function accountView() {
   const s = syncSnapshot();
   return [
@@ -376,6 +442,7 @@ function aboutView() {
 const VIEWS = {
   account: { render: accountView },
   general: { render: generalView },
+  data: { render: dataView },
   about: { render: aboutView },
 };
 

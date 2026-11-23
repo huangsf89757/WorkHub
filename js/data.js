@@ -4,10 +4,12 @@
  *         → sync.outbox → bus.emit('data') → 五区重绘
  * 每条记录附带 meta（同步元数据），视图层不感知，sync.js 消费。
  */
-import { store, bus } from './core.js';
-import { persist } from './storage.js';
+import { store, bus } from './base.js';
+import { persist, registerDomainStorage } from './storage.js';
 import { enqueue } from './sync.js';
 import { getDeviceId } from './platform.js';
+import { nextTs } from './hlc.js';
+import { mergeDomain, purgeTombstones, getLastPullAt } from './sync.js';
 import { ownershipMeta, getCurrentUserId } from './identity.js';
 
 /* ---------- 通用工具 ---------- */
@@ -23,7 +25,7 @@ const clone = value => JSON.parse(JSON.stringify(value));
  */
 export function newMeta(opts = {}) {
   return {
-    updatedAt: Date.now(),
+    updatedAt: nextTs(),
     updatedBy: getDeviceId(),
     deletedAt: null,
     rev: 1,
@@ -35,7 +37,7 @@ export function newMeta(opts = {}) {
 /** 触碰记录：刷新 LWW 时间戳并递增版本号；保留原归属，仅更新作者维度 */
 export function touch(record) {
   record.meta = record.meta || newMeta();
-  record.meta.updatedAt = Date.now();
+  record.meta.updatedAt = nextTs();
   record.meta.updatedBy = getDeviceId();
   record.meta.userId = getCurrentUserId(); // 最后修改者（单机=me），归属 ownerId 保持不变
   record.meta.rev = (record.meta.rev || 0) + 1;
@@ -44,28 +46,26 @@ export function touch(record) {
 }
 
 /* ---------- 领域声明（扩展用 declareDomain 注册自己的数据域） ---------- */
-const domains = new Map(); // name -> { seed }
-
-export function declareDomain(name, seed = []) {
+const domains = new Map(); // name -> { seed, table }
+/**
+ * 扩展声明自己的数据域。
+ *   seed   首次使用的初始数据
+ *   opts.table  可选，自带持久化表名（须形如 ext_<扩展id>_<名称>）。
+ *               给出后无需修改内核 db.js：适配器会自动建表并读写（记录存为 JSON 文档 + 同步元数据列）。
+ *               不给则只存 localStorage 镜像（内置域 todos 等由 db.js 手写映射）。
+ */
+export function declareDomain(name, seed = [], opts = {}) {
   if (domains.has(name)) return;
-  domains.set(name, { seed });
-  if (state[name] === undefined) state[name] = clone(seed);
+  domains.set(name, { seed, table: opts.table || null });
+  if (state[name] === undefined) state[name] = store.get(name, clone(seed)); // 先从本地镜像恢复，无则用种子
+  if (opts.table) registerDomainStorage(name, { table: opts.table });
 }
 export const domainNames = () => [...domains.keys()];
 
-/* ---------- 全局状态（首次从 localStorage 镜像恢复，随后由 initDb 覆盖为 SQLite 真相） ---------- */
-export const state = {
-  projects: store.get('projects', []),
-  tasks: store.get('tasks', []),
-  snippets: store.get('snippets', []),
-  notes: store.get('notes', []),
-  learning: store.get('learning', []),
-  links: store.get('links', {}),
-  todos: store.get('todos', []),
-  todoGroups: store.get('todoGroups', []),
-  complaints: store.get('complaints', []),
-  posts: store.get('posts', []),
-};
+/* ---------- 全局状态 ----------
+ * 只由 declareDomain 按需创建：内核不再硬编码任何业务域，扩展声明才存在。
+ * 启动时 db.js 会用 SQLite 中的真实数据覆盖（initStorage 之后）。 */
+export const state = {};
 
 /* ---------- 统一提交：镜像 + 适配器 + outbox + 重绘 ---------- */
 export function commit(key, op = 'upsert', record = null) {
@@ -97,27 +97,30 @@ export function remove(domain, id) {
   if (!record) return;
   // 软删除墓碑：保留以便多端传播删除事件
   record.meta = record.meta || newMeta();
-  record.meta.deletedAt = Date.now();
+  record.meta.deletedAt = nextTs();
   record.meta.updatedAt = record.meta.deletedAt;
   record.meta.updatedBy = getDeviceId();
+  record.meta.rev = (record.meta.rev || 0) + 1;
   commit(domain, 'delete', record);
 }
 
 export const alive = domain => (state[domain] || []).filter(item => !item.meta?.deletedAt);
 export const byId = (domain, id) => alive(domain).find(item => item.id === id);
 
-/** 接收远端合并结果：只替换 state 与镜像，不再入队（避免回环）。 */
-export function applyRemote(domain, records) {
+/**
+ * 接收远端记录：按 LWW 与本地合并，再清理「已同步过且过期」的墓碑，最后落盘。
+ * 调用方只需传远端原始记录，无需自己合并（旧实现直接替换整域，调用方写错就会覆盖本地未推送的数据）。
+ * 不入 outbox（避免回环）。返回变更条数。
+ */
+export function applyRemote(domain, remoteRecords) {
+  const merged = mergeDomain(state[domain] || [], remoteRecords);
+  const { records, purged } = purgeTombstones(merged.records, { syncedUpTo: getLastPullAt() });
   state[domain] = records;
-  store.set(domain, state[domain]);
-  persist(domain, state[domain]);
+  store.set(domain, records);
+  persist(domain, records);
   bus.emit('data', { key: domain, op: 'remote' });
-  return records.length;
+  return merged.changed + purged;
 }
-
-/* ---------- 兼容 DAO（保留旧签名） ---------- */
-export const tasksOf = pid => alive('tasks').filter(t => t.projectId === pid);
-export const pendingCount = pid => alive('tasks').filter(t => !t.done).length;
 
 /** 数据库恢复：把从 SQLite 读回的 state 同步到内存。 */
 export function hydrate(restored) {

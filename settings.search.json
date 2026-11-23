@@ -21,6 +21,11 @@
     "category": "account",
     "label": "账户与同步"
   },
+  "data": {
+    "aliases": ["backup", "export", "import", "restore", "data", "备份", "导出", "导入", "恢复", "数据", "迁移", "丢失"],
+    "category": "data",
+    "label": "数据与备份"
+  },
   "about": {
     "aliases": ["about", "version", "update", "docs", "architecture", "roadmap", "关于", "版本", "更新", "检测", "信息", "文档", "架构", "路线图"],
     "category": "about",

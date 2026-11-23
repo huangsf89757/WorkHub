@@ -4,7 +4,7 @@
  * 上层只调用统一 API，不判断宿主；新增端只在本文件加探测分支。
  * 零构建：全部通过全局对象/UA 探测，不依赖任何包。
  */
-import { storageKey } from './core.js';
+import { storageKey } from './base.js';
 
 /* ---------- 运行环境探测 ---------- */
 export function detectPlatform() {

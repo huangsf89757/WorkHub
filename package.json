@@ -1,0 +1,7 @@
+{
+  "name": "workhub",
+  "private": true,
+  "type": "module",
+  "description": "仅用于 node --test 运行测试；应用本身零构建、零依赖，浏览器直接加载 js/main.js",
+  "scripts": { "test": "node --test tests/*.test.js" }
+}

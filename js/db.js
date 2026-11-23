@@ -9,7 +9,7 @@
  *   2. 每条记录的 meta（含 deletedAt 墓碑）必须落库，否则软删除刷新后复活。
  *   3. 迁移标记 v2_imported：老库缺此键时从 localStorage 镜像重导一次自愈。
  */
-import { bus, store, registry } from './core.js';
+import { bus, store, registry } from './base.js';
 import { registerAdapter } from './storage.js';
 import { getDeviceId, detectPlatform } from './platform.js';
 import {
@@ -472,6 +472,36 @@ const M = {
   },
 };
 
+/* ============================================================
+   扩展自带表（通用文档映射）
+   扩展 declareDomain(name, seed, { table: 'ext_<id>_<name>' }) 后，本层自动：
+     建表 → 读写 → 同步元数据列落独立列。记录除 id/meta 外的字段存成一列 JSON（doc）。
+   适合新扩展快速落地；需要按列查询/索引的域，再手写专用映射（如 todos）。
+   ============================================================ */
+const TABLE_NAME = /^ext_[a-z][a-z0-9]*(_[a-z0-9]+)+$/;
+const newTables = new Set(); // 本次启动新建出来的通用表：state 里的镜像数据要写入，而不是被空表覆盖
+export function registerDomain(key, { table }) {
+  if (M[key]) return; // 内置手写映射优先，不被覆盖
+  if (!TABLE_NAME.test(table || '')) throw new Error(`非法的扩展表名：${table}（须形如 ext_<扩展id>_<名称>）`);
+  const ddl = `CREATE TABLE IF NOT EXISTS ${table} (
+    id TEXT PRIMARY KEY, doc TEXT, updated_at INTEGER, updated_by TEXT,
+    deleted_at INTEGER, rev INTEGER DEFAULT 1, meta TEXT)`;
+  M[key] = {
+    tables: [table],
+    ddl,
+    generic: true,
+    insert: `INSERT INTO ${table} (id,doc,updated_at,updated_by,deleted_at,rev,meta) VALUES (?,?,?,?,?,?,?)`,
+    toRows: arr => arr.map(({ id, meta, ...doc }) => [id, J(doc), ...metaCols({ meta })]),
+    fromRows: rows => rows.map(r => ({ ...(P(r.doc) || {}), id: r.id, meta: fromMeta(r) })),
+    load: `SELECT * FROM ${table}`,
+  };
+  if (db) { // 适配器已打开：立即建表（晚注册的扩展）
+    const existed = all(`SELECT name FROM sqlite_master WHERE type='table' AND name=?`, [table]).length > 0;
+    db.run(ddl);
+    if (!existed) newTables.add(key);
+    scheduleSave();
+  }
+}
 /** 领域整体重写：清空表后逐行插入。 */
 function persistDomain(key, arr) {
   const mapping = M[key];
@@ -638,10 +668,31 @@ export function baseInfo() {
 }
 
 /* ---------- 适配器注册 ---------- */
+/* ---------- 同步 outbox 持久化（sys_outbox）：刷新/关闭后未推送的变更不丢 ---------- */
+function outboxAppend(entry) {
+  if (!db) return;
+  run(`INSERT OR REPLACE INTO ${TABLES.outbox} (seq,domain,op,record,at,pushed) VALUES (?,?,?,?,?,0)`,
+    [entry.seq, entry.domain, entry.op, J(entry.record), entry.at]);
+  scheduleSave();
+}
+function outboxAck(seqs) {
+  if (!db || !seqs?.length) return;
+  run(`DELETE FROM ${TABLES.outbox} WHERE seq IN (${seqs.map(() => '?').join(',')})`, seqs);
+  scheduleSave();
+}
+function outboxLoad() {
+  if (!db) return [];
+  return all(`SELECT seq,domain,op,record,at FROM ${TABLES.outbox} WHERE pushed=0 ORDER BY seq`)
+    .map(r => ({ seq: r.seq, domain: r.domain, op: r.op, record: P(r.record), at: r.at }));
+}
 registerAdapter({
   name: 'local-sqlite-idb',
   init: initDb,
   persistDomain,
+  registerDomain,
+  outboxAppend,
+  outboxAck,
+  outboxLoad,
   flush,
   info: () => dbInfo(),
 });
@@ -653,15 +704,30 @@ export async function initDb(state) {
   db = saved ? new SQL.Database(saved) : new SQL.Database();
   // v4：先重命名老库的无前缀表名（此时新表尚未被 SCHEMA 建出，避免新建空表占位导致迁移跳过）
   const renamed = migrateTableNames();
+
+  // v6：必须在 SCHEMA 之前读取真实版本。SCHEMA 含无条件 INSERT OR IGNORE version=6，
+  // 若在 SCHEMA 之后读 MAX(version)，老库（已含 5）会被新插入的 6 顶成 6，导致
+  // schemaVer<6 判定失效、migrateSlimMeta 被跳过。此坑实测踩过，勿调整顺序。
+  const verTableExists = all(`SELECT name FROM sqlite_master WHERE type='table' AND name=?`, [TABLES.schemaVersion]).length > 0;
+  const prevVer = verTableExists ? (all(`SELECT MAX(version) AS v FROM ${TABLES.schemaVersion}`)[0]?.v || 0) : 0;
+
   db.run(SCHEMA);
+  // 扩展自带表：扩展在 init 之前已声明，这里统一建表；新建的表用 state 镜像填充，而不是回读空表
+  newTables.clear();
+  for (const [key, mapping] of Object.entries(M)) {
+    if (!mapping.ddl) continue;
+    const table = mapping.tables[0];
+    const existed = all(`SELECT name FROM sqlite_master WHERE type='table' AND name=?`, [table]).length > 0;
+    db.run(mapping.ddl);
+    if (!existed) newTables.add(key);
+  }
   migrateColumns(state); // 老库补列（如 v3 todos.start）并从 localStorage 镜像回填，在回读 state 之前执行
 
   // v6：清理历史 meta 里重复存的同步字段（独立列现在是真相源）。
-  // 版本号由 SCHEMA 的 INSERT OR IGNORE 写入：新库=6 跳过，老库=5 则迁移后升到 6。
-  const schemaVer = all(`SELECT MAX(version) AS v FROM ${TABLES.schemaVersion}`)[0]?.v || 0;
-  if (schemaVer < 6) {
+  // SCHEMA 已插入 version=6 行；老库残留的低版本行需删除，避免多版本行歧义。
+  if (prevVer > 0 && prevVer < 6) {
     migrateSlimMeta();
-    run(`UPDATE ${TABLES.schemaVersion} SET version=6 WHERE version<6`);
+    run(`DELETE FROM ${TABLES.schemaVersion} WHERE version<6`);
     scheduleSave();
   }
 
@@ -673,12 +739,18 @@ export async function initDb(state) {
     scheduleSave();
   }
   if ((!imported && !renamed) && state) {
-    for (const key of Object.keys(M)) persistDomain(key, state[key]);
+    // state 不再预置业务域：未声明的域直接从 localStorage 镜像导入，避免首次导入时清空老数据
+    for (const key of Object.keys(M)) persistDomain(key, state[key] ?? store.get(key, []));
     run(`INSERT OR REPLACE INTO ${TABLES.settings} (key,value) VALUES ('v2_imported','1')`);
     scheduleSave();
   } else if (state) {
     for (const key of Object.keys(M)) {
       const mapping = M[key];
+      if (newTables.has(key)) { // 新建的空表：把本地镜像里已有的数据写进去，避免被空结果覆盖
+        persistDomain(key, state[key] ?? store.get(key, []));
+        state[key] ??= store.get(key, []);
+        continue;
+      }
       const main = all(mapping.load);
       const child = mapping.loadChild ? all(mapping.loadChild) : null;
       state[key] = mapping.fromRows(main, child);

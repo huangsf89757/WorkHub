@@ -196,3 +196,26 @@ v1 为 no-op 骨架，API 已冻结：`setRemoteAdapter / enqueue / push / pull 
 - **LWW 粒度**：按记录级，两端同时编辑同一条会丢一端。笔记类未来可升级字段级合并 / CRDT。
 - **路由内存态**：刷新回到默认页；同步落地后可把 `{ext,mode,id}` 编入 URL 便于分享。
 - **自动同步**：startAutoSync 已提供，但需在 CloudAdapter 注入后由 main.js 调用。
+
+## 9. 架构评估后的优化（ADR-006）
+> 2026-11-23 · 针对代码评审中发现的问题，逐项落地并配测试（`npm test`，Node 内置 test runner，无依赖）
+
+| 问题 | 处理 | 位置 |
+|---|---|---|
+| `core.js` 过大，数据层反向依赖 UI 内核 | 抽出无 DOM 的基础设施层 `base.js`（`store` / `bus` / `registry` / key 规范）。`data / sync / db / identity / platform / storage` 不再 import `core.js`；`core.js` re-export 全部符号，旧 import 不受影响 | `js/base.js` |
+| outbox 只在内存，刷新即丢 | `enqueue` 同步写 `sys_outbox`；启动 `restoreOutbox()` 恢复；push 成功后 ack 出队；同一记录多次修改合并为最新一条；入队存深拷贝 | `sync.js` `storage.js` `db.js` |
+| LWW 依赖设备时钟 | `hlc.js` 单调时间戳：本地写入取 `max(now, 已见最大值+1)`；合并时吸收远端时间戳；远端超前 24h 以上视为异常不吸收；同时刻比 `rev` 再比 deviceId | `js/hlc.js` |
+| 合并时清墓碑导致记录复活 | `mergeDomain` 只做合并。`purgeTombstones` 要求「超过 30 天」且「早于已成功同步的时间点」才清理；未启用同步不清理 | `sync.js` |
+| `applyRemote` 直接替换整域 | 改为内部与本地 LWW 合并，调用方只传远端原始记录 | `data.js` |
+| 无备份，浏览器清理即丢数据 | 设置 → 数据与备份：导出 JSON；导入支持合并 / 替换（替换时本地多出的记录打墓碑而非丢弃，被改动记录提升版本，保证多端同步正确）；导入前校验格式、域名、重复 id | `js/backup.js` |
+| localStorage 镜像写失败被静默吞掉 | `store.set` 失败发出 `store:error`，界面提示一次并引导去备份 | `base.js` `core.js` |
+| 数据重绘丢光标 / 滚动 | `data` 事件重绘前记录焦点控件位置、光标选区与各容器 `scrollTop`，重绘后恢复 | `core.js` |
+| 内核硬编码未实现的业务域；新扩展必须改 `db.js` | `state` 初始为空，仅 `declareDomain` 声明的域存在。`declareDomain(name, seed, { table: 'ext_<id>_<名称>' })` 让适配器自动建表读写（记录存 JSON 文档列 + 同步元数据独立列）；表名正则校验防注入；装进已有数据库时用本地镜像填充新表 | `data.js` `storage.js` `db.js` |
+
+**测试覆盖**（`tests/`）：基础设施、HLC、LWW / 合并 / 墓碑清理、outbox 持久化、备份导入导出与校验、`db.js` 真实 sql.js 集成（落盘、刷新恢复、墓碑不复活、v3 旧库迁移、扩展自带表）。
+
+**仍未解决（有意保留）**
+- `persistDomain` 仍为整域重写；多端高频同步前需改行级 upsert。
+- 重绘仍是整区重建（只保证焦点与滚动不丢）；按领域精确重绘需要扩展声明所依赖的域。
+- 内置域（todos 等）的手写映射仍在 `db.js`，尚未迁到各扩展；新扩展请用 `table` 选项。
+- 同步仍无 CloudAdapter，端到端联网路径未经真实后端验证。

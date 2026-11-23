@@ -5,24 +5,28 @@
  *
  * 同步模型（详见 docs/sync-protocol.md）：
  *   - 每条记录携带 meta：{ updatedAt, updatedBy, deletedAt, rev }
- *   - 冲突策略 LWW：updatedAt 大者胜，相等用 deviceId 字典序打破平局
- *   - 删除 = 软删除墓碑（deletedAt），保留 N 天后清理
- *   - 变更日志 outbox：本地写入即入队，push 成功后出队
+ *   - 冲突策略 LWW：updatedAt 大者胜；相等比 rev；再相等用 deviceId 字典序打破平局
+ *     updatedAt 由 hlc.js 单调生成，吸收远端时间戳，缓解设备时钟偏差
+ *   - 删除 = 软删除墓碑（deletedAt）；仅当「已过保留期 且 已被成功同步过」才物理清理（见 purgeTombstones）
+ *   - 变更日志 outbox：本地写入即入队并持久化（sys_outbox），同记录多次修改合并为最新一条，push 成功后出队
  *   - 拉取按 since=lastPullAt 增量，按领域合并
  */
 
-import { bus } from './core.js';
+import { bus } from './base.js';
 import { getDeviceId, isOnline } from './platform.js';
-import { storageInfo } from './storage.js';
+import { storageInfo, outboxAppend, outboxAck, outboxLoad } from './storage.js';
+import { observe } from './hlc.js';
+import { store } from './base.js';
 
 export const SYNC_STATE = { OFF: 'off', IDLE: 'idle', SYNCING: 'syncing', ERROR: 'error' };
 
 let state = SYNC_STATE.OFF;
 let remote = null;             // CloudAdapter，注入后才启用
-let lastPullAt = 0;
+let lastPullAt = store.get('syncCursor', 0) || 0; // 增量拉取游标，持久化，重启不重拉全量
 let outbox = [];               // [{ seq, domain, op, record, at }]
 let seq = 0;
 
+const saveCursor = () => store.set('syncCursor', lastPullAt);
 function setState(next) {
   state = next;
   bus.emit('sync:state', next);
@@ -39,44 +43,77 @@ export function setRemoteAdapter(adapter) {
   setState(remote ? SYNC_STATE.IDLE : SYNC_STATE.OFF);
 }
 
-/** 记录一次本地变更（由 data.commit 调用）。离线也入队，恢复在线统一推送。 */
+/** 记录一次本地变更（由 data.commit 调用）。离线也入队并落盘，恢复在线统一推送。
+ *  同一条记录的多次修改只保留最新一条（对端只关心最终状态），避免 outbox 无限增长。 */
 export function enqueue(domain, op, record) {
-  outbox.push({ seq: ++seq, domain, op, record: { ...record }, at: Date.now() });
+  const snapshot = JSON.parse(JSON.stringify(record)); // 深拷贝：meta 后续会被原地修改
+  const superseded = outbox.filter(item => item.domain === domain && item.record.id === snapshot.id);
+  if (superseded.length) {
+    outbox = outbox.filter(item => !superseded.includes(item));
+    outboxAck(superseded.map(item => item.seq));
+  }
+  const entry = { seq: ++seq, domain, op, record: snapshot, at: Date.now() };
+  outbox.push(entry);
+  outboxAppend(entry);
   if (remote) bus.emit('sync:dirty', outbox.length);
 }
-
-/** LWW 胜者：updatedAt 大者胜；相等按 deviceId 字典序打破平局。 */
+/** 启动时从持久层恢复未推送条目（main.js 在 initStorage 之后调用）。返回恢复条数。 */
+export function restoreOutbox() {
+  const rows = outboxLoad();
+  const known = new Set(outbox.map(item => item.seq));
+  for (const row of rows) {
+    if (known.has(row.seq)) continue;
+    outbox.push(row);
+    seq = Math.max(seq, row.seq);
+  }
+  outbox.sort((a, b) => a.seq - b.seq);
+  return rows.length;
+}
+/** LWW 胜者：updatedAt 大者胜；相等比 rev；再相等按 deviceId 字典序打破平局（确定性，两端结论一致）。 */
 export function lwwWinner(local, incoming) {
   if (!local) return incoming;
   if (!incoming) return local;
   const lt = local.meta?.updatedAt ?? 0;
   const it = incoming.meta?.updatedAt ?? 0;
-  if (it > lt) return incoming;
-  if (it < lt) return local;
+  if (it !== lt) return it > lt ? incoming : local;
+  const lr = local.meta?.rev ?? 0;
+  const ir = incoming.meta?.rev ?? 0;
+  if (ir !== lr) return ir > lr ? incoming : local;
   return (incoming.meta?.updatedBy || '') > (local.meta?.updatedBy || '') ? incoming : local;
 }
-
-/** 远端记录按 LWW 合并进本地领域，返回新数组与变更条数。 */
+/** 远端记录按 LWW 合并进本地领域，返回新数组与变更条数。纯合并，不做任何物理删除。 */
 export function mergeDomain(localArr, remoteArr) {
   const map = new Map();
-  for (const record of localArr) map.set(record.id, record);
+  for (const record of localArr || []) map.set(record.id, record);
   let changed = 0;
   for (const record of remoteArr || []) {
-    const winner = lwwWinner(map.get(record.id), record);
-    if (winner !== map.get(record.id)) changed++;
+    observe(record.meta?.updatedAt);
+    const current = map.get(record.id);
+    const winner = lwwWinner(current, record);
+    if (winner !== current) changed++;
     map.set(record.id, winner);
-  }
-  // 墓碑：物理清理超过 30 天的删除记录
-  const cutoff = Date.now() - 30 * 86400000;
-  for (const [id, record] of map) {
-    if (record.meta?.deletedAt && record.meta.deletedAt < cutoff) {
-      map.delete(id);
-      changed++;
-    }
   }
   return { records: [...map.values()], changed };
 }
-
+export const TOMBSTONE_RETAIN_MS = 30 * 86400000;
+/**
+ * 清理墓碑。必须同时满足：
+ *   1. 删除时间早于保留期（默认 30 天）；
+ *   2. 删除时间不晚于 syncedUpTo（已成功与远端同步到的时间点）。
+ * 条件 2 防止「墓碑还没传给其他设备就被物理删除」——否则其他设备仍持有该记录，
+ * 下次合并时会把已删除的记录重新带回来（复活）。未启用同步（syncedUpTo=0）时不清理。
+ */
+export function purgeTombstones(records, { now = Date.now(), retainMs = TOMBSTONE_RETAIN_MS, syncedUpTo = 0 } = {}) {
+  const limit = Math.min(now - retainMs, syncedUpTo);
+  let purged = 0;
+  const kept = records.filter(record => {
+    const deletedAt = record.meta?.deletedAt;
+    if (deletedAt && deletedAt < limit) { purged++; return false; }
+    return true;
+  });
+  return { records: kept, purged };
+}
+export const getLastPullAt = () => lastPullAt;
 /** 推送本地 outbox；无 remote 或离线时返回 0。 */
 export async function push() {
   if (!remote || !isOnline() || !outbox.length) return 0;
@@ -85,6 +122,7 @@ export async function push() {
     const batch = outbox.slice();
     await remote.push(batch);
     outbox = outbox.filter(item => !batch.includes(item));
+    outboxAck(batch.map(item => item.seq));
     setState(SYNC_STATE.IDLE);
     bus.emit('sync:pushed', batch.length);
     return batch.length;
@@ -106,6 +144,7 @@ export async function pull(applyFn) {
       result[domain] = applyFn(domain, records);
     }
     lastPullAt = serverTime || Date.now();
+    saveCursor();
     setState(SYNC_STATE.IDLE);
     bus.emit('sync:pulled', result);
     return result;

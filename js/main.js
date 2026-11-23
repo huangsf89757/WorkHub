@@ -16,7 +16,7 @@ import './page-skin-detail.js';   // 副作用：注册界面样式详情系统�
 import './page-ext-detail.js';    // 副作用：注册通用扩展详情系统页（介绍 / README / 预览）
 import './page-settings.js';      // 副作用：注册设置系统页（左侧分类 + 顶部搜索）
 import './pages.js';              // 副作用：注册内核系统页面（扩展中心）
-import './sync.js';               // 同步引擎（v1 骨架）
+import { restoreOutbox } from './sync.js'; // 同步引擎（v1 骨架）
 import planned from './features.js';
 import platform from './platform.js';
 
@@ -31,6 +31,7 @@ setDefaultStatus(() => {
 
 /* 存储恢复完成后启动 UI；失败也不阻塞启动（降级为空数据） */
 initStorage(state).finally(() => {
+  restoreOutbox(); // 恢复上次未推送的变更
   boot();
   console.log('%c WorkHub Ready · ' + platform.label,
     'background:#1d1d1f;color:#4ec9b0;padding:4px 10px;border-radius:4px;font-family:monospace;');

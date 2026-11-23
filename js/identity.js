@@ -9,7 +9,7 @@
  *   2. 归属信息进记录 meta（userId/ownerId/scope/householdId），不改业务表列。
  *   3. 依赖 core.js 的 store/bus（core 不反向依赖本模块，无循环）。
  */
-import { store, bus } from './core.js';
+import { store, bus } from './base.js';
 
 export const DEFAULT_USER_ID = 'me';
 export const DEFAULT_USER_NAME = '我';
