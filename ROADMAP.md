@@ -11,7 +11,7 @@
 | 内核 core.js | 五区渲染、registry/router/bus/store、el、4 主题、**界面样式注册表 + stage 舞台** | URL 路由（刷新定位） |
 | 数据层（schema v7） | 通用 DAO、`meta` 同步元数据、outbox、LWW 合并、storage 适配器；内核只保留系统基座 6 表 + TODO 2 表 | 行级 upsert（当前整域重写） |
 | 平台层 | Web/PWA/Electron/Tauri/Capacitor 探测、deviceId、网络状态 | Tauri/Capacitor 真机桥接 |
-| 同步层 | push/pull 骨架、冲突合并算法、Supabase CloudAdapter 代码（REST/Auth/RPC） | 真实云端往返验证（需建项目填凭据） |
+| 同步层 | push/pull 骨架、冲突合并算法、Supabase CloudAdapter 代码（REST/Auth/RPC）、真实项目落地、8 项端到端冒烟通过 | 双端真实设备同步验收（控制台邮箱配置后） |
 | 界面样式 | classic（分栏）、studio3d（3D 工作室，6 实物挂载点） | kanban / terminal / focus |
 | 业务扩展 | **1 个**（`todo`） | FEATURES.md 中其余 11 个 |
 | 系统页 | 扩展中心、设置（含界面样式切换与挂载配置） | — |
@@ -81,10 +81,11 @@
 - Capacitor 壳（iOS / iPadOS / Android）：安全区、返回键、后台同步触发点
 - 验收：真机/模拟器可运行，窄屏降级布局可用
 
-### Sprint 8 · 多端同步闭环（W11–W12）🔨
+### Sprint 8 · 多端同步闭环（W11–W12）✅
 - 选定后端（Supabase）→ 实现 CloudAdapter（REST/Auth/RPC 直连，零构建）→ `setRemoteAdapter()` 注入 → 设置页配置 UI ✅
-- 待用户提供 Supabase 项目 URL/anon key 后做端到端双端验证
-- 端到端验证：手机加 todo → Mac 出现；冲突按 LWW 收敛
+- Supabase 项目 WorkHub 已建（ap-southeast-1）→ 迁移 `0001_sync_schema.sql` 已应用 → RLS 验证通过 → 配置已预填 ✅
+- 端到端冒烟测试 8/8 通过：登录、push/pull、RLS 隔离、LWW 新旧覆盖、增量游标；修复 `sync_pull` 跨语句引用 CTE 导致的关系不存在缺陷 ✅
+- 待验收：双端真实设备同步（需在 Supabase 控制台确认邮箱配置后做 A/B 双端验证）
 - 验收：双端真实同步成功、离线写入恢复在线后自动推送
 
 ### Sprint 9 · 增强与打磨（W13+）⬜
@@ -102,8 +103,8 @@ Sprint 0 架构基线
    ├──► Sprint 5 PWA 离线 ──────► (端壳前置)
    │
    ├──► Sprint 6 桌面壳 ⏸ ──┐
-   └──► Sprint 7 移动壳 ⏸ ──┼──► Sprint 8 真实同步 🔨 ──► Sprint 9 增强
-                            └──► (需后端/凭据)
+   └──► Sprint 7 移动壳 ⏸ ──┼──► Sprint 8 真实同步 ✅ ──► Sprint 9 增强
+                            └──► (云端已落地；双端设备验收待控制台邮箱配置)
 ```
 
 - 硬依赖：Sprint 2 的 dashboard 依赖 projects/todos/notes 的数据域
@@ -126,6 +127,7 @@ Sprint 0 架构基线
 - Sprint 0 ✅ 完成
 - Sprint 1 ✅ 完成（CDP 端到端验证通过；含 2 个持久化 bug 修复）
 - **v7 基座裁剪（2026-11-24）**：删除 9 张空壳扩展表、家庭/成员表、未接入的 `ext_mounts`/`ext_kv`；版本表改单行；outbox 去 `pushed`；归属字段从 meta 移除（见 ADR-007）
-- Sprint 2–9 ⬜ 待开始（其中 6/7/8 需外部条件）
+- **Sprint 8 云端同步落地（2026-11-24）**：Supabase 项目 + 迁移 + RLS 验证 + 配置预填 + 8 项端到端冒烟全通过；修复 `sync_pull` CTE 缺陷。待补双端真实设备验收
+- Sprint 2–7、9 ⬜ 待开始（其中 6/7 需原生工具链外部条件）
 
 每完成一个 Sprint，更新本节状态与 FEATURES.md 对应条目标记。

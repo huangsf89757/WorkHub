@@ -1,7 +1,7 @@
 # Supabase 云端同步接入指南
 
 > 面向：WorkHub 本地优先架构的云端后端（schema v7/v8 之后的同步闭环）
-> 状态：代码已就绪，需用户在 Supabase 建项目并执行迁移后即可使用。
+> 状态：项目已建、迁移已应用、8 项端到端冒烟通过；连接信息已预填到设置页。双端真实设备验收待控制台邮箱配置后执行。
 
 ## 0. 架构概览
 
@@ -21,7 +21,9 @@
 2. 进入 **SQL Editor → New query**
 3. 粘贴执行 `supabase/migrations/0001_sync_schema.sql`（整段一次执行）
 4. 验证 RLS：同目录执行 `test_rls.sql`，输出 `ALL RLS TESTS PASSED` 即通过（会建/删两个临时测试用户）
-5. 在 **Authentication → Providers → Email** 开启邮箱登录；若希望注册即用无需邮件确认，关闭 **Confirm email**
+5. **（关键，否则无法注册登录）** 在 **Authentication → Providers → Email** 确认 Email provider 为 Enabled；并到 **Authentication → Providers → Email → Confirm email** 关闭邮件确认——新项目默认开启，开启时 `signUp` 只返回 user 不返回 token，且新项目邮件配额受限会触发 `email rate limit exceeded`，导致应用内注册登录不可用。关闭后注册即登录，无需收邮件。
+
+> 本项目当前实例：名称 `WorkHub`，Region `ap-southeast-1`，Project URL `https://jdrgadgjejgdxjttxcpb.supabase.co`。迁移与 RLS 验证均已完成，上表第 1–4 步无需重复；**第 5 步的 Confirm email 关闭仍需在该项目控制台手动执行**，这是双端验收的前置条件。
 
 ## 2. 取连接信息
 
