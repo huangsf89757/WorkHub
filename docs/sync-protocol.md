@@ -100,3 +100,52 @@ syncNow():
 - 全量领域重写与增量同步的写放大 → v2 改行级 upsert
 - 删除墓碑膨胀 → 30 天清理策略
 - 离线队列无限增长 → 未来加容量上限与压缩
+
+## 11. 通用表 `sync_records` 的设计理由与扩展演进路径
+
+### 11.1 为什么云端用一张通用表
+
+云端与本地职责不同：本地 SQLite 是**真相源 + 查询引擎**，按业务拆表以便建列、排序、索引；云端 Supabase 只是**同步总线**，只负责"存变更、按用户分发、判定 LWW"。
+
+因此云端不解析业务字段，只认五个通用维度：`user_id`（谁）、`domain`（哪个业务域）、`record_id`（哪条）、`updated_at`（LWW 依据）、`record jsonb`（业务记录原样透传）。无论将来是 todos、notes 还是 projects，云端代码无需改动。已兑现的收益：
+
+1. 新增扩展零改云端：本地 `declareDomain()` 即可，云端不建表、不改 RPC/RLS、不跑迁移。
+2. 统一 LWW：所有域共用 `sync_push` / `sync_pull`，冲突算法只有一份。
+3. 统一权限：一张表一条 `user_id = auth.uid()` RLS 策略，安全面收敛。
+4. 协议解耦：push/pull 契约与业务结构无关（协议 v1 冻结）。
+
+若云端也按业务拆表，每加一个扩展都要改建表、该表 RPC、该表 RLS、迁移与同步分支——ADR-007 正是为避免"空壳表/过度预设"而裁剪。
+
+### 11.2 扩展增多、业务复杂时的分层演进
+
+通用表不是永远够用，但有明确的分级应对，按触发条件逐级做，不必提前重构：
+
+| 触发条件 | 应对 | 影响层 |
+|---|---|---|
+| 高频同步写放大 | `persistDomain` 从整域 DELETE+INSERT 改为行级 `INSERT … ON CONFLICT DO UPDATE` | 本地 db.js，不动云端通用表 |
+| 想在云端直接 SQL 报表 | 从 `record` JSON 用 generated 列或表达式索引投影常用字段（如 `record->>'due'`），不改表结构 | 云端索引/视图 |
+| 单用户记录上万 / 团队共享 | 引入复合游标 `(updated_at, record_id)` 分页替代 `p_since`；按 domain 分区 | 云端 RPC |
+| 两端同改一条不同字段丢数据 | LWW 从记录级升到字段级 / CRDT | 合并算法，与表结构无关 |
+| 某域成为性能黑户（如笔记全文搜索） | 仅该域拆专用表，其余继续用通用表（混合模式） | 该域特例 |
+| 重启组织结构 / 多租户 | 改 `user_id` 语义为 org/team scope，加关系表与可见性策略 | 权限层，通用表仍承载 |
+
+**结论**：复杂度增长时，绝大多数情况改的是算法（LWW 粒度）、索引（查询）、分页（规模），而非推翻表结构。只有明确的单个热点域才开专用表特例——这是渐进演进，不是一次性重构。
+
+## 12. 按扩展可插拔的合并策略（ADR-008）
+
+> 决策记录：[ADR-008](adr-008-sync-strategy.md) · 设计过程：[docs/plans/2026-11-24-sync-strategy-design.md](../docs/plans/2026-11-24-sync-strategy-design.md)
+
+同步架构分两个正交维度，均为早期定架构、避免团队化返工：
+
+- **维度 A 归属与可见性（地基）**：云端 `sync_records` 预留 `scope_type`(user/team/org) + `scope_id`；个人期填 `user/<uid>`，团队期填 `team/<id>` + 成员表与可见性 RLS。存量行一条 UPDATE 回填。这是 ADR-005 撤销家庭模型时该保留的通用扩展位。
+- **维度 B 合并策略（按扩展插拔）**：`declareSync(domain, { strategy })` 注册，策略是**域的静态属性**（非用户级运行时检测）。接口 `{ encode, merge, transport }`：
+
+| 策略 | 状态 | 合并依据 | transport |
+|---|---|---|---|
+| `lww-record` | 已实现（默认） | 记录级 `updatedAt/rev/deviceId` | record |
+| `lww-field` | 未来按需 | 字段级时间戳 | record |
+| `crdt` | 未来按需 | Yjs `applyUpdate` | op |
+
+用户从 TODO（lww-record）切到白板（crdt）时，同步引擎按当前写入域自动走对应策略。
+
+**关键约束**：CRDT 传增量操作，云端不能用 LWW 判定（会丢并发操作）。CRDT 更新同样装入通用 `sync_records`，用 `op='crdt-op'` + 每次 update 独立 `record_id`，云端只存不判、合并全在客户端——云端表结构不变。CRDT 库（Yjs）到真正需要时再引入（vendor ESM 或 CDN），现在不引入以守住零构建约束。
