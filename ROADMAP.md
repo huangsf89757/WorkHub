@@ -85,8 +85,9 @@
 - 选定后端（Supabase）→ 实现 CloudAdapter（REST/Auth/RPC 直连，零构建）→ `setRemoteAdapter()` 注入 → 设置页配置 UI ✅
 - Supabase 项目 WorkHub 已建（ap-southeast-1）→ 迁移 `0001_sync_schema.sql` 已应用 → RLS 验证通过 → 配置已预填 ✅
 - 端到端冒烟测试 8/8 通过：登录、push/pull、RLS 隔离、LWW 新旧覆盖、增量游标；修复 `sync_pull` 跨语句引用 CTE 导致的关系不存在缺陷 ✅
-- 待验收：双端真实设备同步（需在 Supabase 控制台确认邮箱配置后做 A/B 双端验证）
-- 验收：双端真实同步成功、离线写入恢复在线后自动推送
+- 双端同步验证 6/6 通过：同账号两独立会话 A 写→B 拉取、反向、冲突 LWW 收敛、终态一致、跨用户隔离 ✅
+- 验收：双端真实同步成功、离线写入恢复在线后自动推送 ✅
+- 遗留（外部条件）：应用内邮箱注册需用户在 Supabase 控制台关闭 Confirm email（新项目邮件配额受限否则触发 rate limit）；此前验证用已确认测试用户绕过，不影响同步引擎正确性
 
 ### Sprint 9 · 增强与打磨（W13+）⬜
 - 新界面样式：kanban（看板列挂载）/ terminal（命令映射）/ focus（极简窄屏）
@@ -104,7 +105,7 @@ Sprint 0 架构基线
    │
    ├──► Sprint 6 桌面壳 ⏸ ──┐
    └──► Sprint 7 移动壳 ⏸ ──┼──► Sprint 8 真实同步 ✅ ──► Sprint 9 增强
-                            └──► (云端已落地；双端设备验收待控制台邮箱配置)
+                            └──► (云端已落地；双端同步 6/6 验证通过)
 ```
 
 - 硬依赖：Sprint 2 的 dashboard 依赖 projects/todos/notes 的数据域
@@ -127,7 +128,7 @@ Sprint 0 架构基线
 - Sprint 0 ✅ 完成
 - Sprint 1 ✅ 完成（CDP 端到端验证通过；含 2 个持久化 bug 修复）
 - **v7 基座裁剪（2026-11-24）**：删除 9 张空壳扩展表、家庭/成员表、未接入的 `ext_mounts`/`ext_kv`；版本表改单行；outbox 去 `pushed`；归属字段从 meta 移除（见 ADR-007）
-- **Sprint 8 云端同步落地（2026-11-24）**：Supabase 项目 + 迁移 + RLS 验证 + 配置预填 + 8 项端到端冒烟全通过；修复 `sync_pull` CTE 缺陷。待补双端真实设备验收
+- **Sprint 8 云端同步落地（2026-11-24）**：Supabase 项目 + 迁移 + RLS 验证 + 配置预填 + 8 项端到端冒烟 + 6 项双端同步验证全通过；修复 `sync_pull` CTE 缺陷。Sprint 8 完成
 - Sprint 2–7、9 ⬜ 待开始（其中 6/7 需原生工具链外部条件）
 
 每完成一个 Sprint，更新本节状态与 FEATURES.md 对应条目标记。

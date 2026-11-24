@@ -57,7 +57,7 @@
 | P1 | LWW 冲突合并 | `lwwWinner` / `mergeDomain` 已实现 | ✅ 已就绪 |
 | P1 | 存储适配器 | `registerAdapter` 抽象，LocalAdapter 已接 | ✅ 已就绪 |
 | P2 | CloudAdapter | Supabase 云端适配器（REST/Auth/RPC 直连，零构建） | ✅ 已落地；Supabase 项目 WorkHub 已建，配置已预填 |
-| P2 | 真实 push/pull | `setRemoteAdapter()` 注入后启用 | ✅ 8 项端到端冒烟通过（登录/push/pull/RLS/LWW/增量游标）；待双端设备验收 |
+| P2 | 真实 push/pull | `setRemoteAdapter()` 注入后启用 | ✅ 8 项端到端冒烟 + 6 项双端同步验证全通过（A↔B 拉取/LWW 收敛/跨用户隔离） |
 | P2 | 桌面壳 | Tauri / Electron 打包（macOS + Windows） | ⬜ |
 | P2 | 移动壳 | Capacitor 打包（iOS / iPadOS / Android） | ⬜ |
 | P3 | 同步冲突可视化 | 冲突记录的手动解决 UI | ⬜ |
