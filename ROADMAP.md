@@ -9,11 +9,11 @@
 | 层 | 已完成 | 未完成 |
 |---|---|---|
 | 内核 core.js | 五区渲染、registry/router/bus/store、el、4 主题、**界面样式注册表 + stage 舞台** | URL 路由（刷新定位） |
-| 数据层 | 通用 DAO、`meta` 同步元数据、outbox、LWW 合并、storage 适配器 | 行级 upsert（当前整域重写） |
+| 数据层（schema v7） | 通用 DAO、`meta` 同步元数据、outbox、LWW 合并、storage 适配器；内核只保留系统基座 6 表 + TODO 2 表 | 行级 upsert（当前整域重写） |
 | 平台层 | Web/PWA/Electron/Tauri/Capacitor 探测、deviceId、网络状态 | Tauri/Capacitor 真机桥接 |
-| 同步层 | push/pull 骨架、冲突合并算法 | CloudAdapter、真实云端往返 |
+| 同步层 | push/pull 骨架、冲突合并算法、Supabase CloudAdapter 代码（REST/Auth/RPC） | 真实云端往返验证（需建项目填凭据） |
 | 界面样式 | classic（分栏）、studio3d（3D 工作室，6 实物挂载点） | kanban / terminal / focus |
-| 业务扩展 | **0 个**（全部占位已删） | FEATURES.md 中 12 个 |
+| 业务扩展 | **1 个**（`todo`） | FEATURES.md 中其余 11 个 |
 | 系统页 | 扩展中心、设置（含界面样式切换与挂载配置） | — |
 
 **关键结论**：骨架全部就位，缺的是"真实业务扩展"与"端壳/云端落地"。因此排期顺序为：**先用 1 个扩展打通范式 → 批量铺功能 → 补端壳 → 最后接通同步**。
@@ -45,7 +45,7 @@
 | 修复 todoGroups 软删墓碑未持久化（P1） | 分组软删刷新后不复活 | — |
 
 **验收（CDP 实测通过）**：五区 CRUD 正常；写入带完整 `meta` 且内存 outbox +1；刷新后 SQLite 数据正确恢复（标题/分组/软删墓碑全对）；3D 点电脑进入真实 TODO 页；无运行时错误。
-**遗留**：outbox 仅在内存队列，未随 `persistDomain` 落 `outbox` 表（云同步接 `CloudAdapter` 时补齐，不影响当前本地优先）。
+**遗留（已解决）**：outbox 早期仅在内存；ADR-006 已改为 `sys_outbox` 落库与刷新恢复，CloudAdapter 接入时无需再补。
 
 ### Sprint 2 · P1 核心三件套（W2–W3）⬜
 **目标**：覆盖"项目—笔记—概览"主工作流，dashboard 依赖前两者数据。
@@ -81,8 +81,9 @@
 - Capacitor 壳（iOS / iPadOS / Android）：安全区、返回键、后台同步触发点
 - 验收：真机/模拟器可运行，窄屏降级布局可用
 
-### Sprint 8 · 多端同步闭环（W11–W12）⏸
-- 选定后端（Supabase / 自建网关）→ 实现 CloudAdapter → `setRemoteAdapter()` 注入
+### Sprint 8 · 多端同步闭环（W11–W12）🔨
+- 选定后端（Supabase）→ 实现 CloudAdapter（REST/Auth/RPC 直连，零构建）→ `setRemoteAdapter()` 注入 → 设置页配置 UI ✅
+- 待用户提供 Supabase 项目 URL/anon key 后做端到端双端验证
 - 端到端验证：手机加 todo → Mac 出现；冲突按 LWW 收敛
 - 验收：双端真实同步成功、离线写入恢复在线后自动推送
 
@@ -101,7 +102,7 @@ Sprint 0 架构基线
    ├──► Sprint 5 PWA 离线 ──────► (端壳前置)
    │
    ├──► Sprint 6 桌面壳 ⏸ ──┐
-   └──► Sprint 7 移动壳 ⏸ ──┼──► Sprint 8 真实同步 ⏸ ──► Sprint 9 增强
+   └──► Sprint 7 移动壳 ⏸ ──┼──► Sprint 8 真实同步 🔨 ──► Sprint 9 增强
                             └──► (需后端/凭据)
 ```
 
@@ -113,7 +114,7 @@ Sprint 0 架构基线
 
 | 项 | 条件/风险 | 应对 |
 |---|---|---|
-| CloudAdapter | 需后端与凭据（Supabase/自建） | 未就位前 sync 保持 no-op，主线不受阻 |
+| CloudAdapter | 代码就绪；需 Supabase 项目与凭据 | 未填配置前 sync 保持 no-op，主线不受阻 |
 | 桌面/移动壳 | 需 Tauri / Capacitor + Xcode / Android Studio | 放 W7 之后，纯 Web 功能不受影响 |
 | LWW 字段级冲突 | 记录级 LWW 会丢一端编辑 | 笔记类 v2 升级字段级/CRDT（Sprint 9） |
 | 写放大 | `persistDomain` 整域重写 | 高频同步时改行级 upsert（Sprint 9） |
@@ -124,6 +125,7 @@ Sprint 0 架构基线
 
 - Sprint 0 ✅ 完成
 - Sprint 1 ✅ 完成（CDP 端到端验证通过；含 2 个持久化 bug 修复）
+- **v7 基座裁剪（2026-11-24）**：删除 9 张空壳扩展表、家庭/成员表、未接入的 `ext_mounts`/`ext_kv`；版本表改单行；outbox 去 `pushed`；归属字段从 meta 移除（见 ADR-007）
 - Sprint 2–9 ⬜ 待开始（其中 6/7/8 需外部条件）
 
 每完成一个 Sprint，更新本节状态与 FEATURES.md 对应条目标记。

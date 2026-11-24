@@ -24,7 +24,7 @@
 **约束**：
 1. 零构建、原生 ES Modules（浏览器直接跑）
 2. 本地优先（local-first）：离线可用，网络是增强项而非依赖
-3. 单人为主，schema 预留多用户
+3. 单人为主；组织/协作模型暂不预设（家庭模型已撤销，待通用组织结构设计）
 4. 视图层不碰存储；扩展只通过契约接入
 
 ## 3. 五区布局模型
@@ -219,3 +219,17 @@ v1 为 no-op 骨架，API 已冻结：`setRemoteAdapter / enqueue / push / pull 
 - 重绘仍是整区重建。扩展可声明 `domains: [...]`（可选）：无关域变更时只刷新 left / top / bottom，center / right 不重建；未声明的扩展保持整体重绘。目前仅 todo 声明。
 - 内置域（todos 等）的手写映射仍在 `db.js`，尚未迁到各扩展；新扩展请用 `table` 选项。
 - 同步仍无 CloudAdapter，端到端联网路径未经真实后端验证。
+
+## 10. ADR-007：数据库基座裁剪（schema v7，2026-11-24）
+
+**决策**：内核数据库只保留系统基座，业务与组织形态不预设。
+
+| 变更 | 原因 |
+|---|---|
+| 删除 9 张未实现的扩展表（projects/tasks/snippets/complaints/notes/posts/learning） | 建了表却无扩展读写，属空壳；扩展需要时用 `declareDomain(table)` 自带表 |
+| 删除 `sys_ext_mounts` / `sys_ext_kv` | 挂载配置已归 `store.skinMounts`（偏好）；扩展数据归扩展自有表 |
+| 删除 `sys_households` / `sys_memberships` 与 meta 归属字段 | 组织结构未定，家庭模型过度预设；待通用组织结构设计（ADR-005 撤销） |
+| `sys_schema_version` 改单行约束；`sys_outbox` 去 `pushed` | 修复版本行累积缺陷；删除恒为 0 的死列 |
+
+**保留**：`ext_todo_items` / `ext_todo_groups`（TODO 扩展在用）。详见 [database-design.md](database-design.md)。
+

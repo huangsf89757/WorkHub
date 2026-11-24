@@ -1053,6 +1053,11 @@ body[data-page="system"] .top-system { display: flex; }
 .setg-profile { display: flex; align-items: center; gap: 11px; margin-bottom: 6px; }
 .setg-profile .user-avatar { width: 36px; height: 36px; font-size: 12px; }
 .setg-update { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+/* 云端同步表单 */
+.setg-field { display: flex; flex-direction: column; gap: 5px; margin-top: 12px; }
+.setg-field label { font-size: 11.5px; color: var(--text-2); font-weight: 600; }
+.setg-field .input { width: 100%; }
+.setg-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; }
 
 /* 视图切换（界面 / 源码）——与 VSCode 设置的分段控件同构 */
 .seg {

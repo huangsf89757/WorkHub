@@ -7,7 +7,7 @@
 import { boot, setDefaultStatus, setPlannedFeatures } from './core.js';
 import { state, alive } from './data.js';
 import { initStorage, flush } from './storage.js';
-import './identity.js';           // 副作用：用户/家庭身份上下文（单机默认 me/home）
+import './identity.js';           // 本地用户身份（单机默认 me，无家庭/组织）
 import './db.js';                 // 副作用：向 storage 注册 LocalAdapter
 import './ext-todo.js';           // 副作用：注册 TODO 扩展（首个真实业务扩展）
 import './skin-classic.js';       // 副作用：注册经典分栏皮肤（默认）
@@ -16,23 +16,24 @@ import './page-skin-detail.js';   // 副作用：注册界面样式详情系统�
 import './page-ext-detail.js';    // 副作用：注册通用扩展详情系统页（介绍 / README / 预览）
 import './page-settings.js';      // 副作用：注册设置系统页（左侧分类 + 顶部搜索）
 import './pages.js';              // 副作用：注册内核系统页面（扩展中心）
-import { restoreOutbox } from './sync.js'; // 同步引擎（v1 骨架）
+import { restoreOutbox } from './sync.js'; // 同步引擎（骨架 + Supabase CloudAdapter）
+import { initCloudSync } from './cloud-sync.js'; // 云端同步引导（无配置则 no-op）
 import planned from './features.js';
 import platform from './platform.js';
 
 setPlannedFeatures(planned);
 
 setDefaultStatus(() => {
-  const projects = alive('projects').filter(p => p.isActive).length;
-  const pending = alive('tasks').filter(t => !t.done).length
-    + alive('todos').filter(t => !t.done).length;
-  return `${projects} 项目 · ${pending} 待办 · ${platform.label}`;
+  const pending = alive('todos').filter(t => !t.done).length;
+  return `${pending} 待办 · ${platform.label}`;
 });
 
 /* 存储恢复完成后启动 UI；失败也不阻塞启动（降级为空数据） */
-initStorage(state).finally(() => {
+initStorage(state).finally(async () => {
   restoreOutbox(); // 恢复上次未推送的变更
   boot();
+  // 云端同步非阻塞引导：有配置且会话有效才注入 adapter，否则保持本地优先
+  await initCloudSync();
   console.log('%c WorkHub Ready · ' + platform.label,
     'background:#1d1d1f;color:#4ec9b0;padding:4px 10px;border-radius:4px;font-family:monospace;');
 });

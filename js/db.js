@@ -1,55 +1,44 @@
 /* db.js — 本地持久层 LocalAdapter：sql.js(WASM) + IndexedDB 存档
  *
- * 实现 storage.js 适配器契约；schema 与 docs/database-design.md 同步。
+ * 实现 storage.js 适配器契约；schema 与 docs/database-design.md 同步（系统基座 v7）。
  * 领域整体重写（全表 DELETE + INSERT），个人规模足够；同步列已预埋。
+ *
+ * 范围（v7 起）：只维护系统基座表（sys_）+ 先行保留的 TODO 扩展表。
+ * 其余业务扩展表、家庭/组织模型表已从基座移除，扩展将来用 declareDomain(table) 自带表接入。
  *
  * 正确性要点（勿回归）：
  *   1. persistDomain 必须区分单表/多表领域：单表领域 toRows 返回纯数据行，
  *      整行绑定，不能像多表领域那样丢弃首字段当表名（否则列全部左移一位）。
  *   2. 每条记录的 meta（含 deletedAt 墓碑）必须落库，否则软删除刷新后复活。
  *   3. 迁移标记 v2_imported：老库缺此键时从 localStorage 镜像重导一次自愈。
+ *   4. 版本读取与表名迁移都必须在 SCHEMA 之前（SCHEMA 会建表/写版本，顺序错则迁移跳过）。
  */
 import { bus, store, registry } from './base.js';
 import { registerAdapter } from './storage.js';
 import { getDeviceId, detectPlatform } from './platform.js';
-import {
-  DEFAULT_USER_ID, DEFAULT_USER_NAME, DEFAULT_HOUSEHOLD_ID, DEFAULT_HOUSEHOLD_NAME, ROLES,
-} from './identity.js';
+import { DEFAULT_USER_ID, DEFAULT_USER_NAME } from './identity.js';
 
 let db = null;
 let saveTimer = null;
 let prefSubscribed = false;
 
 /* ============================================================
-   表名规范（v4）：
-     sys_  —— 系统内置基座表（用户/设备/设置/扩展机制/变更日志）
-     ext_<扩展id>_ —— 扩展功能表，按扩展归属命名空间
-   新增扩展只需在 TABLES 登记并建表，不与系统表混淆。
+   表名规范（v4 起）：
+     sys_  —— 系统基座表（用户/设备/设置/扩展机制/变更日志/版本）
+     ext_<扩展id>_ —— 扩展功能表，按扩展归属命名空间（由扩展自带，不纳入基座）
+   当前基座只登记系统表与先行保留的 TODO 表；其余扩展表由扩展在需要时自行声明。
    ============================================================ */
 const TABLES = Object.freeze({
-  // 系统内置
+  // 系统基座
   schemaVersion: 'sys_schema_version',
   users: 'sys_users',
-  households: 'sys_households',
-  memberships: 'sys_memberships',
   devices: 'sys_devices',
   settings: 'sys_settings',
   extensions: 'sys_extensions',
-  extMounts: 'sys_ext_mounts',
-  extKv: 'sys_ext_kv',
   outbox: 'sys_outbox',
-  // 扩展功能
+  // TODO 扩展自有表（用户要求先行保留，不随其余扩展表删除）
   todos: 'ext_todo_items',
   todoGroups: 'ext_todo_groups',
-  projects: 'ext_projects',
-  tasks: 'ext_project_tasks',
-  snippets: 'ext_snippets',
-  complaints: 'ext_complaints',
-  complaintEvents: 'ext_complaint_events',
-  noteNodes: 'ext_notes_nodes',
-  noteVersions: 'ext_notes_versions',
-  posts: 'ext_blog_posts',
-  learning: 'ext_learning',
 });
 
 /** 旧表名 → 新表名（v3 及之前是无前缀命名），用于老库平滑迁移 */
@@ -59,20 +48,9 @@ const TABLE_RENAMES = Object.freeze({
   devices: TABLES.devices,
   settings: TABLES.settings,
   extensions: TABLES.extensions,
-  ext_mounts: TABLES.extMounts,
-  ext_kv: TABLES.extKv,
   outbox: TABLES.outbox,
   todos: TABLES.todos,
   todo_groups: TABLES.todoGroups,
-  projects: TABLES.projects,
-  tasks: TABLES.tasks,
-  snippets: TABLES.snippets,
-  complaints: TABLES.complaints,
-  complaint_events: TABLES.complaintEvents,
-  note_nodes: TABLES.noteNodes,
-  note_versions: TABLES.noteVersions,
-  posts: TABLES.posts,
-  learning: TABLES.learning,
 });
 
 /* ============================================================
@@ -110,60 +88,18 @@ const loadIdb = async () => {
 };
 
 /* ============================================================
-   Schema（含同步列 + outbox 表）
+   Schema（系统基座 v7 + 先行保留的 TODO 表 v8 结构）
    ============================================================ */
+const SCHEMA_VERSION = 8;
 const SCHEMA = `
-CREATE TABLE IF NOT EXISTS ${TABLES.schemaVersion} (version INTEGER NOT NULL);
-CREATE TABLE IF NOT EXISTS ${TABLES.projects} (
-  id TEXT PRIMARY KEY, name TEXT NOT NULL, stack TEXT, icon TEXT, url TEXT,
-  is_active INTEGER NOT NULL DEFAULT 1, created_at INTEGER, updated_at INTEGER,
-  updated_by TEXT, deleted_at INTEGER, rev INTEGER DEFAULT 1, meta TEXT);
-CREATE TABLE IF NOT EXISTS ${TABLES.tasks} (
-  id TEXT PRIMARY KEY, project_id TEXT, title TEXT NOT NULL,
-  done INTEGER NOT NULL DEFAULT 0, priority TEXT DEFAULT 'medium',
-  created_at INTEGER, updated_at INTEGER, updated_by TEXT,
-  deleted_at INTEGER, rev INTEGER DEFAULT 1, meta TEXT);
-CREATE TABLE IF NOT EXISTS ${TABLES.snippets} (
-  id TEXT PRIMARY KEY, title TEXT, language TEXT, tags TEXT, code TEXT,
-  created_at INTEGER, updated_at INTEGER, updated_by TEXT,
-  deleted_at INTEGER, rev INTEGER DEFAULT 1, meta TEXT);
-CREATE TABLE IF NOT EXISTS ${TABLES.todos} (
-  id TEXT PRIMARY KEY, title TEXT NOT NULL, done INTEGER NOT NULL DEFAULT 0,
-  priority TEXT DEFAULT 'medium', start INTEGER, due INTEGER, note TEXT DEFAULT '',
-  group_id TEXT, tags TEXT, created_at INTEGER, updated_at INTEGER,
-  updated_by TEXT, deleted_at INTEGER, rev INTEGER DEFAULT 1, meta TEXT);
-CREATE TABLE IF NOT EXISTS ${TABLES.todoGroups} (
-  id TEXT PRIMARY KEY, name TEXT NOT NULL, sort INTEGER DEFAULT 0,
-  created_at INTEGER, updated_at INTEGER, meta TEXT);
-CREATE TABLE IF NOT EXISTS ${TABLES.complaints} (
-  id TEXT PRIMARY KEY, customer TEXT, title TEXT, severity TEXT, status TEXT,
-  desc TEXT, created_at INTEGER, resolved_at INTEGER, updated_at INTEGER, meta TEXT);
-CREATE TABLE IF NOT EXISTS ${TABLES.complaintEvents} (
-  id TEXT PRIMARY KEY, complaint_id TEXT, content TEXT, created_at INTEGER, meta TEXT);
-CREATE TABLE IF NOT EXISTS ${TABLES.noteNodes} (
-  id TEXT PRIMARY KEY, parent_id TEXT, type TEXT NOT NULL, title TEXT,
-  content TEXT, expanded INTEGER, created_at INTEGER, updated_at INTEGER, meta TEXT);
-CREATE TABLE IF NOT EXISTS ${TABLES.noteVersions} (
-  id TEXT PRIMARY KEY, node_id TEXT, content TEXT, created_at INTEGER, meta TEXT);
-CREATE TABLE IF NOT EXISTS ${TABLES.posts} (
-  id TEXT PRIMARY KEY, title TEXT, content TEXT, status TEXT DEFAULT 'draft',
-  created_at INTEGER, updated_at INTEGER, meta TEXT);
-CREATE TABLE IF NOT EXISTS ${TABLES.learning} (
-  id TEXT PRIMARY KEY, title TEXT, category TEXT, progress INTEGER DEFAULT 0,
-  priority INTEGER DEFAULT 3, created_at INTEGER, updated_at INTEGER, meta TEXT);
-/* ---------- 系统内置域（用户 / 设备 / 设置 / 扩展机制 / 变更日志） ---------- */
+/* ---------- 系统基座 ---------- */
+/* schema_version：单行版本标记。id 恒为 1（CHECK 约束），INSERT OR IGNORE 真正幂等，
+   不再像旧版那样因 version 无唯一约束而每次启动累积新行。 */
+CREATE TABLE IF NOT EXISTS ${TABLES.schemaVersion} (
+  id INTEGER PRIMARY KEY CHECK (id = 1), version INTEGER NOT NULL, updated_at INTEGER);
 CREATE TABLE IF NOT EXISTS ${TABLES.users} (
   id TEXT PRIMARY KEY, name TEXT NOT NULL DEFAULT '我', avatar TEXT,
   created_at INTEGER, updated_at INTEGER, deleted_at INTEGER, rev INTEGER DEFAULT 1, meta TEXT);
-/* households：家庭/协作空间（未来多用户升级的核心容器，单机默认一条 'home'） */
-CREATE TABLE IF NOT EXISTS ${TABLES.households} (
-  id TEXT PRIMARY KEY, name TEXT NOT NULL DEFAULT '我的家', owner_id TEXT,
-  created_at INTEGER, updated_at INTEGER, deleted_at INTEGER, rev INTEGER DEFAULT 1, meta TEXT);
-/* memberships：用户在家庭中的成员关系（user_id + household_id 唯一，role=owner|member） */
-CREATE TABLE IF NOT EXISTS ${TABLES.memberships} (
-  id TEXT PRIMARY KEY, user_id TEXT NOT NULL, household_id TEXT NOT NULL,
-  role TEXT NOT NULL DEFAULT 'member', joined_at INTEGER,
-  updated_at INTEGER, meta TEXT, UNIQUE(user_id, household_id));
 CREATE TABLE IF NOT EXISTS ${TABLES.devices} (
   id TEXT PRIMARY KEY, user_id TEXT, platform TEXT, label TEXT,
   first_seen INTEGER, last_seen INTEGER, meta TEXT);
@@ -176,20 +112,23 @@ CREATE TABLE IF NOT EXISTS ${TABLES.extensions} (
   id TEXT PRIMARY KEY, name TEXT, enabled INTEGER NOT NULL DEFAULT 1,
   sort INTEGER DEFAULT 0, source TEXT DEFAULT 'builtin',
   created_at INTEGER, updated_at INTEGER, meta TEXT);
-/* ext_mounts：扩展在各皮肤挂载点的绑定（skin_id + point_id → ext_id） */
-CREATE TABLE IF NOT EXISTS ${TABLES.extMounts} (
-  id TEXT PRIMARY KEY, skin_id TEXT NOT NULL, point_id TEXT NOT NULL, ext_id TEXT,
-  updated_at INTEGER, meta TEXT, UNIQUE(skin_id, point_id));
-CREATE TABLE IF NOT EXISTS ${TABLES.extKv} (
-  id TEXT PRIMARY KEY, ext_id TEXT NOT NULL, key TEXT NOT NULL, value TEXT,
-  updated_at INTEGER, UNIQUE(ext_id, key));
+/* outbox：本地变更队列。ack 即删除行，故不再保留恒为 0 的 pushed 列 */
 CREATE TABLE IF NOT EXISTS ${TABLES.outbox} (
   seq INTEGER PRIMARY KEY AUTOINCREMENT, domain TEXT NOT NULL, op TEXT NOT NULL,
-  record TEXT NOT NULL, at INTEGER NOT NULL, pushed INTEGER NOT NULL DEFAULT 0);
-CREATE INDEX IF NOT EXISTS idx_ext_project_tasks_project ON ${TABLES.tasks}(project_id);
+  record TEXT NOT NULL, at INTEGER NOT NULL);
+/* ---------- TODO 扩展表（先行保留；v8 补齐同步列与完成时间） ---------- */
+CREATE TABLE IF NOT EXISTS ${TABLES.todos} (
+  id TEXT PRIMARY KEY, title TEXT NOT NULL, done INTEGER NOT NULL DEFAULT 0,
+  priority TEXT DEFAULT 'medium', start INTEGER, due INTEGER, note TEXT DEFAULT '',
+  group_id TEXT, tags TEXT, created_at INTEGER, completed_at INTEGER, updated_at INTEGER,
+  updated_by TEXT, deleted_at INTEGER, rev INTEGER DEFAULT 1, meta TEXT);
+/* v8：分组表升级为完整同步表（补齐 updated_by/deleted_at/rev），与待办表对齐 */
+CREATE TABLE IF NOT EXISTS ${TABLES.todoGroups} (
+  id TEXT PRIMARY KEY, name TEXT NOT NULL, sort INTEGER DEFAULT 0,
+  created_at INTEGER, updated_at INTEGER, updated_by TEXT,
+  deleted_at INTEGER, rev INTEGER DEFAULT 1, meta TEXT);
 CREATE INDEX IF NOT EXISTS idx_ext_todo_items_group ON ${TABLES.todos}(group_id);
-CREATE INDEX IF NOT EXISTS idx_sys_outbox_pushed ON ${TABLES.outbox}(pushed);
-INSERT OR IGNORE INTO ${TABLES.schemaVersion} (version) VALUES (6);
+INSERT OR IGNORE INTO ${TABLES.schemaVersion} (id, version, updated_at) VALUES (1, ${SCHEMA_VERSION}, ${Date.now()});
 `;
 
 /* ============================================================
@@ -209,6 +148,112 @@ function migrateTableNames() {
   }
   if (migrated) scheduleSave();
   return migrated;
+}
+
+/* ============================================================
+   v7 迁移：裁剪到系统基座
+     · 删除全部未实现的扩展表（projects/tasks/snippets/complaints/notes/posts/learning 等）
+     · 删除家庭/组织模型表（households/memberships）与未接入的扩展机制表（ext_mounts/ext_kv）
+     · outbox 去掉恒为 0 的 pushed 列
+     · 剥离所有记录 meta 中的归属字段（家庭模型已撤销）
+     · 版本表交给 SCHEMA 重建为单行（DROP 前已读取 prevVer）
+   幂等：DROP IF EXISTS / 列判断，可重复执行。
+   ============================================================ */
+const REMOVED_TABLES = [
+  // 未实现的扩展功能表（v7 前的预留空壳）
+  'ext_projects', 'ext_project_tasks', 'ext_snippets', 'ext_complaints', 'ext_complaint_events',
+  'ext_notes_nodes', 'ext_notes_versions', 'ext_blog_posts', 'ext_learning',
+  // 家庭 / 组织模型
+  'sys_households', 'sys_memberships',
+  // 未接入的扩展机制表
+  'sys_ext_mounts', 'sys_ext_kv',
+  // v3 及之前的无前缀旧名（若存在一并清除）
+  'projects', 'tasks', 'snippets', 'complaints', 'complaint_events',
+  'note_nodes', 'note_versions', 'posts', 'learning', 'households', 'memberships',
+  'ext_mounts', 'ext_kv',
+];
+
+/** 已撤销的家庭/组织归属字段，写入记录 meta 时会一并剔除 */
+const OWNERSHIP_META_KEYS = ['userId', 'ownerId', 'scope', 'householdId'];
+
+/** 遍历所有带 meta 列的表，剔除归属字段（幂等；用 rowid 定位，兼容无 id 列的表如 settings） */
+function stripOwnershipMeta() {
+  const tables = all(`SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'`).map(r => r.name);
+  for (const table of tables) {
+    const cols = all(`PRAGMA table_info(${table})`).map(r => r.name);
+    if (!cols.includes('meta')) continue;
+    for (const row of all(`SELECT rowid AS rid, meta FROM ${table} WHERE meta IS NOT NULL`)) {
+      const meta = P(row.meta);
+      if (!meta || typeof meta !== 'object') continue;
+      let changed = false;
+      for (const key of OWNERSHIP_META_KEYS) if (key in meta) { delete meta[key]; changed = true; }
+      if (changed) run(`UPDATE ${table} SET meta=? WHERE rowid=?`, [J(meta), row.rid]);
+    }
+  }
+}
+
+function migrateV7() {
+  for (const table of REMOVED_TABLES) db.run(`DROP TABLE IF EXISTS ${table}`);
+  // outbox：旧结构含 pushed 列，ack 直接删行使其恒为 0 → 重建去掉该列，保留未推送条目
+  const hasOutbox = all(`SELECT name FROM sqlite_master WHERE type='table' AND name=?`, [TABLES.outbox]).length > 0;
+  if (hasOutbox) {
+    const cols = all(`PRAGMA table_info(${TABLES.outbox})`).map(r => r.name);
+    if (cols.includes('pushed')) {
+      db.run('CREATE TABLE tmp_outbox (seq INTEGER PRIMARY KEY, domain TEXT NOT NULL, op TEXT NOT NULL, record TEXT NOT NULL, at INTEGER NOT NULL)');
+      db.run(`INSERT INTO tmp_outbox (seq,domain,op,record,at) SELECT seq,domain,op,record,at FROM ${TABLES.outbox}`);
+      db.run(`DROP TABLE ${TABLES.outbox}`);
+      db.run(`ALTER TABLE tmp_outbox RENAME TO ${TABLES.outbox}`);
+    }
+  }
+  stripOwnershipMeta();
+  // 版本表结构升级：交给 SCHEMA 重建为单行（prevVer 已在调用前读取）
+  db.run(`DROP TABLE IF EXISTS ${TABLES.schemaVersion}`);
+  scheduleSave();
+}
+
+/* ============================================================
+   v8 迁移：TODO 表补齐同步列与完成时间（分组表升级为完整同步表）
+     · todos 加 completed_at；已完成的用 updated_at 近似回填（无历史完成时间可考）
+     · todoGroups 加 updated_by/deleted_at/rev，从 meta 回填后剔除精简
+     · 分组 created_at 稳定化：用组内最早待办的创建时间，之后不再被每次写入覆盖
+     · 版本表单行升到 8
+   幂等：先判列再加列；SCHEMA 对已存在的旧表不改结构，故加列必须在此完成。
+   ============================================================ */
+function migrateV8() {
+  const colsOf = table => all(`PRAGMA table_info(${table})`).map(r => r.name);
+
+  // 1. 待办表：完成时间列
+  const todoCols = colsOf(TABLES.todos);
+  if (!todoCols.includes('completed_at')) {
+    db.run(`ALTER TABLE ${TABLES.todos} ADD COLUMN completed_at INTEGER`);
+    // 历史已完成记录没有完成时间可考，用最后更新时间近似（文档已标注为近似值）
+    db.run(`UPDATE ${TABLES.todos} SET completed_at = updated_at WHERE done = 1`);
+  }
+
+  // 2. 分组表：补齐完整同步列
+  const groupCols = colsOf(TABLES.todoGroups);
+  if (!groupCols.includes('updated_by')) db.run(`ALTER TABLE ${TABLES.todoGroups} ADD COLUMN updated_by TEXT`);
+  if (!groupCols.includes('deleted_at')) db.run(`ALTER TABLE ${TABLES.todoGroups} ADD COLUMN deleted_at INTEGER`);
+  if (!groupCols.includes('rev')) db.run(`ALTER TABLE ${TABLES.todoGroups} ADD COLUMN rev INTEGER DEFAULT 1`);
+
+  // 3. 从 meta 回填同步列（v7 及更早分组表只提升 updatedAt，其余同步字段留 meta）
+  for (const row of all(`SELECT id, meta FROM ${TABLES.todoGroups}`)) {
+    const meta = P(row.meta) || {};
+    db.run(`UPDATE ${TABLES.todoGroups} SET updated_by=?, deleted_at=?, rev=? WHERE id=?`,
+      [meta.updatedBy ?? null, meta.deletedAt ?? null, meta.rev ?? 1, row.id]);
+    let changed = false;
+    for (const key of ['updatedAt', 'updatedBy', 'deletedAt', 'rev']) {
+      if (key in meta) { delete meta[key]; changed = true; }
+    }
+    if (changed) db.run(`UPDATE ${TABLES.todoGroups} SET meta=? WHERE id=?`, [J(meta), row.id]);
+  }
+  // 4. created_at 稳定化：取组内最早待办创建时间（老库该列每次写入都被覆盖为 now）
+  db.run(`UPDATE ${TABLES.todoGroups} SET created_at = COALESCE(
+    (SELECT MIN(created_at) FROM ${TABLES.todos} WHERE group_id = ${TABLES.todoGroups}.id), created_at)`);
+
+  // 5. 版本表升 8（v7 库版本表已存在，SCHEMA 的 INSERT OR IGNORE 不会改它）
+  db.run(`UPDATE ${TABLES.schemaVersion} SET version=8, updated_at=? WHERE id=1`, [Date.now()]);
+  scheduleSave();
 }
 
 /* ============================================================
@@ -298,11 +343,12 @@ const SYNC_COL = Object.freeze({
 const SYNC_ALL = Object.freeze(['updatedAt', 'updatedBy', 'deletedAt', 'rev']);
 const PK_ONLY_UPDATED = Object.freeze(['updatedAt']); // 仅 updated_at 独立列的表
 
-/** 精简 meta：剔除该表已提升为独立列的同步字段，保留归属与其他扩展字段 */
+/** 精简 meta：剔除已提升为独立列的同步字段与已撤销的归属字段，只保留扩展字段 */
 const slimMeta = (meta, promoted = SYNC_ALL) => {
   if (!meta) return {};
   const out = { ...meta };
   for (const key of promoted) delete out[key];
+  for (const key of OWNERSHIP_META_KEYS) delete out[key];
   return out;
 };
 
@@ -313,6 +359,7 @@ const fromMeta = (row, promoted = SYNC_ALL) => {
     const col = SYNC_COL[key];
     if (col in row) meta[key] = row[col];
   }
+  for (const key of OWNERSHIP_META_KEYS) delete meta[key];
   return meta;
 };
 
@@ -321,24 +368,17 @@ const metaCols = record => [
   record.meta?.updatedBy || null,
   record.meta?.deletedAt || null,
   record.meta?.rev || 1,
-  J(slimMeta(record.meta, SYNC_ALL)), // meta 只存未提升字段（归属/扩展）
+  J(slimMeta(record.meta, SYNC_ALL)), // meta 只存未提升字段（扩展）
 ];
 
 /* ============================================================
    v6 数据迁移：清理历史 meta JSON 里已提升为独立列的同步字段。
    老库（v5 及之前）meta 里重复存了 updatedAt/updatedBy/deletedAt/rev，
-   v6 起独立列为真相源，meta 只存归属与扩展字段。幂等可重复。
+   v6 起独立列为真相源，meta 只存扩展字段。幂等可重复。
    ============================================================ */
 const SYNC_TABLE_PROMOTED = Object.freeze({
-  [TABLES.projects]: SYNC_ALL,
-  [TABLES.tasks]: SYNC_ALL,
-  [TABLES.snippets]: SYNC_ALL,
   [TABLES.todos]: SYNC_ALL,
-  [TABLES.todoGroups]: PK_ONLY_UPDATED,
-  [TABLES.complaints]: PK_ONLY_UPDATED,
-  [TABLES.noteNodes]: PK_ONLY_UPDATED,
-  [TABLES.posts]: PK_ONLY_UPDATED,
-  [TABLES.learning]: PK_ONLY_UPDATED,
+  [TABLES.todoGroups]: SYNC_ALL, // v8：分组表补齐四列，升为完整同步表
 });
 
 function migrateSlimMeta() {
@@ -359,116 +399,20 @@ function migrateSlimMeta() {
 }
 
 const M = {
-  projects: {
-    tables: [TABLES.projects],
-    insert: `INSERT INTO ${TABLES.projects} (id,name,stack,icon,url,is_active,created_at,updated_at,updated_by,deleted_at,rev,meta) VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
-    toRows: arr => arr.map(p => [p.id, p.name, p.stack || '', p.icon || '', p.url || '', p.isActive ? 1 : 0, p.created || null, ...metaCols(p)]),
-    fromRows: rows => rows.map(r => ({ id: r.id, name: r.name, stack: r.stack, icon: r.icon, url: r.url || '', isActive: !!r.is_active, created: r.created_at, meta: fromMeta(r) })),
-    load: `SELECT * FROM ${TABLES.projects}`,
-  },
-  tasks: {
-    tables: [TABLES.tasks],
-    insert: `INSERT INTO ${TABLES.tasks} (id,project_id,title,done,priority,created_at,updated_at,updated_by,deleted_at,rev,meta) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-    toRows: arr => arr.map(t => [t.id, t.projectId, t.title, t.done ? 1 : 0, t.priority || 'medium', t.created || Date.now(), ...metaCols(t)]),
-    fromRows: rows => rows.map(r => ({ id: r.id, projectId: r.project_id, title: r.title, done: !!r.done, priority: r.priority, created: r.created_at, meta: fromMeta(r) })),
-    load: `SELECT * FROM ${TABLES.tasks}`,
-  },
-  snippets: {
-    tables: [TABLES.snippets],
-    insert: `INSERT INTO ${TABLES.snippets} (id,title,language,tags,code,created_at,updated_at,updated_by,deleted_at,rev,meta) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
-    toRows: arr => arr.map(s => [s.id, s.title || '', s.language || '', J(s.tags || []), s.code || '', s.created || null, ...metaCols(s)]),
-    fromRows: rows => rows.map(r => ({ id: r.id, title: r.title, language: r.language, tags: P(r.tags) || [], code: r.code, created: r.created_at, meta: fromMeta(r) })),
-    load: `SELECT * FROM ${TABLES.snippets}`,
-  },
   todos: {
     tables: [TABLES.todos],
-    insert: `INSERT INTO ${TABLES.todos} (id,title,done,priority,start,due,note,group_id,tags,created_at,updated_at,updated_by,deleted_at,rev,meta) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-    toRows: arr => arr.map(t => [t.id, t.title, t.done ? 1 : 0, t.priority || 'medium', t.start || null, t.due || null, t.note || '', t.groupId || null, J(t.tags || []), t.created || Date.now(), ...metaCols(t)]),
-    fromRows: rows => rows.map(r => ({ id: r.id, title: r.title, done: !!r.done, priority: r.priority, start: r.start ?? null, due: r.due, note: r.note || '', groupId: r.group_id || '', tags: P(r.tags) || [], created: r.created_at, meta: fromMeta(r) })),
+    insert: `INSERT INTO ${TABLES.todos} (id,title,done,priority,start,due,note,group_id,tags,created_at,completed_at,updated_at,updated_by,deleted_at,rev,meta) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+    toRows: arr => arr.map(t => [t.id, t.title, t.done ? 1 : 0, t.priority || 'medium', t.start || null, t.due || null, t.note || '', t.groupId || null, J(t.tags || []), t.created || Date.now(), t.completedAt ?? null, ...metaCols(t)]),
+    fromRows: rows => rows.map(r => ({ id: r.id, title: r.title, done: !!r.done, priority: r.priority, start: r.start ?? null, due: r.due, note: r.note || '', groupId: r.group_id || '', tags: P(r.tags) || [], created: r.created_at, completedAt: r.completed_at ?? null, meta: fromMeta(r) })),
     load: `SELECT * FROM ${TABLES.todos}`,
   },
   todoGroups: {
     tables: [TABLES.todoGroups],
-    insert: `INSERT INTO ${TABLES.todoGroups} (id,name,sort,created_at,updated_at,meta) VALUES (?,?,?,?,?,?)`,
-    // 本表只有 updated_at 独立列：末列存精简 meta（剔除 updatedAt，保留 deletedAt 墓碑/归属）
-    toRows: arr => arr.map((g, i) => [g.id, g.name, i, Date.now(), g.meta?.updatedAt || null, J(slimMeta(g.meta, PK_ONLY_UPDATED))]),
-    // 列为准：updatedAt 取独立列，其余（含 deletedAt）取 meta
-    fromRows: rows => rows.map(r => ({ id: r.id, name: r.name, meta: { ...(P(r.meta) || {}), updatedAt: r.updated_at } })),
-    load: `SELECT * FROM ${TABLES.todoGroups} ORDER BY sort`,
-  },
-  complaints: {
-    tables: [TABLES.complaints, TABLES.complaintEvents],
-    inserts: {
-      [TABLES.complaints]: `INSERT INTO ${TABLES.complaints} (id,customer,title,severity,status,desc,created_at,resolved_at,updated_at,meta) VALUES (?,?,?,?,?,?,?,?,?,?)`,
-      [TABLES.complaintEvents]: `INSERT INTO ${TABLES.complaintEvents} (id,complaint_id,content,created_at,meta) VALUES (?,?,?,?,?)`,
-    },
-    toRows: arr => {
-      const rows = [];
-      for (const c of arr) {
-        rows.push([TABLES.complaints, c.id, c.customer || '', c.title || '', c.severity || 'medium', c.status || 'open', c.desc || '', c.created || Date.now(), c.resolved || null, c.meta?.updatedAt || null, J(slimMeta(c.meta, PK_ONLY_UPDATED))]);
-        for (const log of c.logs || []) {
-          rows.push([TABLES.complaintEvents, `ce${log.ts}${Math.random().toString(36).slice(2, 6)}`, c.id, log.text, log.ts, null]);
-        }
-      }
-      return rows;
-    },
-    fromRows: (complaints, events) => {
-      const byId = {};
-      for (const event of events || []) {
-        (byId[event.complaint_id] ||= []).push({ ts: event.created_at, text: event.content });
-      }
-      return complaints.map(r => ({
-        id: r.id, customer: r.customer, title: r.title, severity: r.severity,
-        status: r.status, desc: r.desc, created: r.created_at, resolved: r.resolved_at,
-        logs: (byId[r.id] || []).sort((a, b) => a.ts - b.ts), meta: fromMeta(r, PK_ONLY_UPDATED),
-      }));
-    },
-    load: `SELECT * FROM ${TABLES.complaints}`,
-    loadChild: `SELECT * FROM ${TABLES.complaintEvents}`,
-  },
-  notes: {
-    tables: [TABLES.noteNodes, TABLES.noteVersions],
-    inserts: {
-      [TABLES.noteNodes]: `INSERT INTO ${TABLES.noteNodes} (id,parent_id,type,title,content,expanded,created_at,updated_at,meta) VALUES (?,?,?,?,?,?,?,?,?)`,
-      [TABLES.noteVersions]: `INSERT INTO ${TABLES.noteVersions} (id,node_id,content,created_at,meta) VALUES (?,?,?,?,?)`,
-    },
-    toRows: arr => {
-      const rows = [];
-      for (const node of arr) {
-        rows.push([TABLES.noteNodes, node.id, node.parentId || null, node.type, node.name, node.content || null, node.type === 'folder' ? (node.expanded ? 1 : 0) : null, node.created || Date.now(), node.meta?.updatedAt || null, J(slimMeta(node.meta, PK_ONLY_UPDATED))]);
-        for (const h of node.history || []) {
-          rows.push([TABLES.noteVersions, `nv${h.ts}${Math.random().toString(36).slice(2, 6)}`, node.id, h.text, h.ts, null]);
-        }
-      }
-      return rows;
-    },
-    fromRows: (nodes, versions) => {
-      const byId = {};
-      for (const version of versions || []) {
-        (byId[version.node_id] ||= []).push({ ts: version.created_at, text: version.content });
-      }
-      return nodes.map(r => {
-        const base = { id: r.id, parentId: r.parent_id, type: r.type, name: r.title, created: r.created_at, meta: fromMeta(r, PK_ONLY_UPDATED) };
-        if (r.type === 'folder') return { ...base, expanded: !!r.expanded };
-        return { ...base, content: r.content || '', updated: r.updated_at || r.created_at, history: (byId[r.id] || []).sort((a, b) => a.ts - b.ts) };
-      });
-    },
-    load: `SELECT * FROM ${TABLES.noteNodes}`,
-    loadChild: `SELECT * FROM ${TABLES.noteVersions}`,
-  },
-  posts: {
-    tables: [TABLES.posts],
-    insert: `INSERT INTO ${TABLES.posts} (id,title,content,status,created_at,updated_at,meta) VALUES (?,?,?,?,?,?,?)`,
-    toRows: arr => arr.map(p => [p.id, p.title || '', p.content || '', p.status || 'draft', p.created || Date.now(), p.meta?.updatedAt || null, J(slimMeta(p.meta, PK_ONLY_UPDATED))]),
-    fromRows: rows => rows.map(r => ({ id: r.id, title: r.title, content: r.content, status: r.status, created: r.created_at, meta: fromMeta(r, PK_ONLY_UPDATED) })),
-    load: `SELECT * FROM ${TABLES.posts}`,
-  },
-  learning: {
-    tables: [TABLES.learning],
-    insert: `INSERT INTO ${TABLES.learning} (id,title,category,progress,priority,created_at,updated_at,meta) VALUES (?,?,?,?,?,?,?)`,
-    toRows: arr => arr.map(l => [l.id, l.title || '', l.category || '', l.progress || 0, l.priority || 3, l.created || Date.now(), l.meta?.updatedAt || null, J(slimMeta(l.meta, PK_ONLY_UPDATED))]),
-    fromRows: rows => rows.map(r => ({ id: r.id, title: r.title, category: r.category, progress: r.progress, priority: r.priority, created: r.created_at, meta: fromMeta(r, PK_ONLY_UPDATED) })),
-    load: `SELECT * FROM ${TABLES.learning}`,
+    insert: `INSERT INTO ${TABLES.todoGroups} (id,name,sort,created_at,updated_at,updated_by,deleted_at,rev,meta) VALUES (?,?,?,?,?,?,?,?,?)`,
+    // v8：created 来自记录（稳定），sort 提升为记录字段（可随 LWW 同步）；四同步列走 metaCols
+    toRows: arr => arr.map((g, i) => [g.id, g.name, g.sort ?? i, g.created || Date.now(), ...metaCols(g)]),
+    fromRows: rows => rows.map(r => ({ id: r.id, name: r.name, sort: r.sort ?? 0, created: r.created_at ?? null, meta: fromMeta(r) })),
+    load: `SELECT * FROM ${TABLES.todoGroups} ORDER BY sort, created_at`,
   },
 };
 
@@ -525,18 +469,13 @@ function persistDomain(key, arr) {
 /* ============================================================
    基座域读写 API（用户 / 设备 / 设置 / 扩展中心）
    与业务域同构：SQLite 为持久化镜像，localStorage 仍为同步真相源。
-   扩展新增只需 registerBaseExtension（零改表），第三方可用 ext_kv 沙箱。
+   扩展新增只需 registerBaseExtension（零改表）；数据用 declareDomain(table) 自带表。
    ============================================================ */
-/** 确保默认用户、默认家庭、owner 成员关系与当前设备登记在库（幂等） */
+/** 确保默认用户与当前设备登记在库（幂等） */
 function seedBase(userId, deviceId, platform) {
   const now = Date.now();
   run(`INSERT OR IGNORE INTO ${TABLES.users} (id,name,created_at,rev,meta) VALUES (?,?,?,?,?)`,
     [userId, DEFAULT_USER_NAME, now, 1, J({})]);
-  // 单机也建一条默认家庭快照：未来升级多用户时，家庭容器已存在，直接加成员即可
-  run(`INSERT OR IGNORE INTO ${TABLES.households} (id,name,owner_id,created_at,rev,meta) VALUES (?,?,?,?,?,?)`,
-    [DEFAULT_HOUSEHOLD_ID, DEFAULT_HOUSEHOLD_NAME, userId, now, 1, J({})]);
-  run(`INSERT OR IGNORE INTO ${TABLES.memberships} (id,user_id,household_id,role,joined_at,meta) VALUES (?,?,?,?,?,?)`,
-    [`m_${userId}_${DEFAULT_HOUSEHOLD_ID}`, userId, DEFAULT_HOUSEHOLD_ID, ROLES.OWNER, now, J({})]);
   run(`INSERT OR IGNORE INTO ${TABLES.devices} (id,user_id,platform,label,first_seen,last_seen,meta) VALUES (?,?,?,?,?,?,?)`,
     [deviceId, userId, platform || 'web', platform || 'Web', now, now, J({})]);
   run(`UPDATE ${TABLES.devices} SET last_seen=? WHERE id=?`, [now, deviceId]);
@@ -546,8 +485,8 @@ function seedBase(userId, deviceId, platform) {
 /** 镜像 core.store 的一次偏好写入到 settings 表 */
 function mirrorPref({ key, value }) {
   if (!db) return;
-  run(`INSERT OR REPLACE INTO ${TABLES.settings} (key,value,scope,updated_at,meta) VALUES (?,?,?,?,?)`,
-    [key, J(value), 'user', Date.now(), J({})]);
+  run(`INSERT OR REPLACE INTO ${TABLES.settings} (key,value,scope,updated_at,updated_by,meta) VALUES (?,?,?,?,?,?)`,
+    [key, J(value), 'user', Date.now(), getDeviceId(), J({})]);
   // 扩展启用态：sys_extensions.enabled 是 store.extEnabled 的投影，必须同步，
   // 否则它永远停在 registerBaseExtension 首次 INSERT 时的值，与真相源漂移。
   if (key === 'extEnabled' && value && typeof value === 'object') {
@@ -599,7 +538,7 @@ export function listBaseExtensions() {
     .map(r => ({ id: r.id, name: r.name, enabled: !!r.enabled, sort: r.sort, source: r.source }));
 }
 
-/* ---------- 用户 / 家庭 / 成员 API（多用户协作预留，单机只用默认值） ---------- */
+/* ---------- 用户 API（组织/家庭模型已撤销，仅保留本地用户） ---------- */
 
 /** 登记或更新用户（幂等） */
 export function upsertUser(id, name, avatar = null) {
@@ -612,58 +551,14 @@ export function upsertUser(id, name, avatar = null) {
   scheduleSave();
 }
 
-/** 创建家庭（幂等），owner 自动成为 owner 成员 */
-export function upsertHousehold(id, name, ownerId) {
-  if (!db) return;
-  const now = Date.now();
-  run(`INSERT OR IGNORE INTO ${TABLES.households} (id,name,owner_id,created_at,rev,meta) VALUES (?,?,?,?,?,?)`,
-    [id, name, ownerId, now, 1, J({})]);
-  if (ownerId) addMember(id, ownerId, ROLES.OWNER);
-  scheduleSave();
-}
-
-/** 添加家庭成员（幂等，user+household 唯一） */
-export function addMember(householdId, userId, role = ROLES.MEMBER) {
-  if (!db) return;
-  run(`INSERT OR IGNORE INTO ${TABLES.memberships} (id,user_id,household_id,role,joined_at,meta) VALUES (?,?,?,?,?,?)`,
-    [`m_${userId}_${householdId}`, userId, householdId, role, Date.now(), J({})]);
-  scheduleSave();
-}
-
-/** 更新成员角色 */
-export function setMemberRole(householdId, userId, role) {
-  if (!db) return;
-  run(`UPDATE ${TABLES.memberships} SET role=?,updated_at=? WHERE household_id=? AND user_id=?`,
-    [role, Date.now(), householdId, userId]);
-  scheduleSave();
-}
-
-/** 列出某家庭的成员（含用户信息） */
-export function listMembers(householdId) {
-  if (!db) return [];
-  return all(`SELECT m.user_id, m.role, m.joined_at, u.name, u.avatar
-    FROM ${TABLES.memberships} m LEFT JOIN ${TABLES.users} u ON u.id=m.user_id
-    WHERE m.household_id=? ORDER BY m.joined_at`, [householdId])
-    .map(r => ({ userId: r.user_id, role: r.role, joinedAt: r.joined_at, name: r.name, avatar: r.avatar }));
-}
-
-/** 列出用户所属家庭 */
-export function listHouseholdsOf(userId) {
-  if (!db) return [];
-  return all(`SELECT h.id, h.name, h.owner_id, m.role
-    FROM ${TABLES.memberships} m JOIN ${TABLES.households} h ON h.id=m.household_id
-    WHERE m.user_id=? ORDER BY h.created_at`, [userId])
-    .map(r => ({ id: r.id, name: r.name, ownerId: r.owner_id, role: r.role }));
-}
-
 /** 基座域诊断快照 */
 export function baseInfo() {
   if (!db) return null;
   const count = table => all(`SELECT COUNT(*) AS n FROM ${table}`)[0].n;
   return {
     users: count(TABLES.users), devices: count(TABLES.devices), settings: count(TABLES.settings),
-    extensions: count(TABLES.extensions), mounts: count(TABLES.extMounts), extKv: count(TABLES.extKv),
-    households: count(TABLES.households), memberships: count(TABLES.memberships),
+    extensions: count(TABLES.extensions), outbox: count(TABLES.outbox),
+    schemaVersion: all(`SELECT version FROM ${TABLES.schemaVersion} WHERE id=1`)[0]?.version ?? null,
   };
 }
 
@@ -671,7 +566,7 @@ export function baseInfo() {
 /* ---------- 同步 outbox 持久化（sys_outbox）：刷新/关闭后未推送的变更不丢 ---------- */
 function outboxAppend(entry) {
   if (!db) return;
-  run(`INSERT OR REPLACE INTO ${TABLES.outbox} (seq,domain,op,record,at,pushed) VALUES (?,?,?,?,?,0)`,
+  run(`INSERT OR REPLACE INTO ${TABLES.outbox} (seq,domain,op,record,at) VALUES (?,?,?,?,?)`,
     [entry.seq, entry.domain, entry.op, J(entry.record), entry.at]);
   scheduleSave();
 }
@@ -682,7 +577,7 @@ function outboxAck(seqs) {
 }
 function outboxLoad() {
   if (!db) return [];
-  return all(`SELECT seq,domain,op,record,at FROM ${TABLES.outbox} WHERE pushed=0 ORDER BY seq`)
+  return all(`SELECT seq,domain,op,record,at FROM ${TABLES.outbox} ORDER BY seq`)
     .map(r => ({ seq: r.seq, domain: r.domain, op: r.op, record: P(r.record), at: r.at }));
 }
 registerAdapter({
@@ -706,13 +601,21 @@ export async function initDb(state) {
   // v4：先重命名老库的无前缀表名（此时新表尚未被 SCHEMA 建出，避免新建空表占位导致迁移跳过）
   const renamed = migrateTableNames();
 
-  // v6：必须在 SCHEMA 之前读取真实版本。SCHEMA 含无条件 INSERT OR IGNORE version=6，
-  // 若在 SCHEMA 之后读 MAX(version)，老库（已含 5）会被新插入的 6 顶成 6，导致
-  // schemaVer<6 判定失效、migrateSlimMeta 被跳过。此坑实测踩过，勿调整顺序。
+  // 版本必须在 SCHEMA 之前读取：SCHEMA 内含版本写入，晚读会被新值顶成当前版本，导致迁移判定失效。
+  // 兼容旧版单列版本表（version INTEGER）与 v7 单行表（id=1, version）。
   const verTableExists = all(`SELECT name FROM sqlite_master WHERE type='table' AND name=?`, [TABLES.schemaVersion]).length > 0;
   const prevVer = verTableExists ? (all(`SELECT MAX(version) AS v FROM ${TABLES.schemaVersion}`)[0]?.v || 0) : 0;
 
+  // 分版本迁移，均须早于 SCHEMA 判定（SCHEMA 内会写版本）。
+  //  v7：裁剪到系统基座（删扩展/家庭表、重建 outbox、剥离归属 meta、版本表重建）——仅 prevVer<7
+  //  v8：TODO 表补齐同步列与完成时间——prevVer<8（含 v7→v8；v6→v8 时两个都跑）
+  const needV7 = !!saved && prevVer < 7;
+  const needV8 = !!saved && prevVer < 8;
+  if (needV7) migrateV7();
+
   db.run(SCHEMA);
+  // v8 加列必须在 SCHEMA 之后：SCHEMA 的 CREATE TABLE IF NOT EXISTS 不会改已存在的旧表结构
+  if (needV8) migrateV8();
   // 扩展自带表：扩展在 init 之前已声明，这里统一建表；新建的表用 state 镜像填充，而不是回读空表
   newTables.clear();
   for (const [key, mapping] of Object.entries(M)) {
@@ -724,22 +627,18 @@ export async function initDb(state) {
   }
   migrateColumns(state); // 老库补列（如 v3 todos.start）并从 localStorage 镜像回填，在回读 state 之前执行
 
-  // v6：清理历史 meta 里重复存的同步字段（独立列现在是真相源）。
-  // SCHEMA 已插入 version=6 行；老库残留的低版本行需删除，避免多版本行歧义。
-  if (prevVer > 0 && prevVer < 6) {
-    migrateSlimMeta();
-    run(`DELETE FROM ${TABLES.schemaVersion} WHERE version<6`);
-    scheduleSave();
-  }
+  // v6：清理历史 meta 里重复存的同步字段（独立列现在是真相源）。v7 迁移已顺带处理归属字段。
+  if (prevVer > 0 && prevVer < 6) migrateSlimMeta();
 
   // v2_imported 标记：老库缺此键时从 localStorage（正确镜像）重导一次，自愈历史错位数据。
-  // 但若刚发生 v4 表名迁移，DB 里是已迁移的真实数据，必须回读而非用 localStorage 覆盖，并补写标记。
+  // 但若刚发生表名迁移或 v7/v8 迁移，DB 里是已处理过的真实数据，必须回读而非用 localStorage 覆盖，并补写标记。
+  const rebuilt = renamed || needV7 || needV8;
   const imported = all(`SELECT value FROM ${TABLES.settings} WHERE key='v2_imported'`).length > 0;
-  if (renamed && !imported) {
+  if (rebuilt && !imported) {
     run(`INSERT OR REPLACE INTO ${TABLES.settings} (key,value) VALUES ('v2_imported','1')`);
     scheduleSave();
   }
-  if ((!imported && !renamed) && state) {
+  if ((!imported && !rebuilt) && state) {
     // state 不再预置业务域：未声明的域直接从 localStorage 镜像导入，避免首次导入时清空老数据
     for (const key of Object.keys(M)) persistDomain(key, state[key] ?? store.get(key, []));
     run(`INSERT OR REPLACE INTO ${TABLES.settings} (key,value) VALUES ('v2_imported','1')`);
@@ -792,6 +691,6 @@ export function dbInfo() {
     tables,
     counts,
     base: baseInfo(),
-    pendingOutbox: all(`SELECT COUNT(*) AS n FROM ${TABLES.outbox} WHERE pushed=0`)[0].n,
+    pendingOutbox: all(`SELECT COUNT(*) AS n FROM ${TABLES.outbox}`)[0].n,
   };
 }

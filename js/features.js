@@ -15,4 +15,6 @@ export default [
   { id: 'tool-codec', name: '编解码',   group: 'Tools',     desc: 'Base64 与 URL 编解码',                         priority: 'P2' },
   { id: 'tool-crypto',name: '加解密',   group: 'Tools',     desc: 'RSA-OAEP / AES-GCM，WebCrypto 本地运算',       priority: 'P2' },
   { id: 'daily-hotspots', name: '每日热点', group: 'Info', desc: '多类别热点聚合：AI、文娱、科技、财经、体育等，可订阅类别与来源', priority: 'P2' },
+  { id: 'clipboard', name: '剪贴板历史', group: 'Tools', desc: '系统级剪贴板历史：全局监听并留存复制记录，支持检索与快捷粘贴（类 PasteNow，依赖桌面壳）', priority: 'P2' },
+  { id: 'shortcuts', name: '快捷键',   group: 'Tools', desc: '全局快捷键呼出软键盘，按键一键启动绑定的本机 App（依赖桌面壳）', priority: 'P2' },
 ];

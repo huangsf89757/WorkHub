@@ -35,6 +35,7 @@ declareDomain('todoGroups', [])
 | `id` | string | `uid()`（crypto.randomUUID） |
 | `title` | string | 标题 |
 | `done` | boolean | 完成态 |
+| `completedAt` | number\|null | 完成时间戳；标记完成写入、取消时清空（v8；历史数据近似值） |
 | `priority` | 'high'\|'medium'\|'low' | 优先级 |
 | `start` | number\|null | 开始时间戳（ms） |
 | `due` | number\|null | 截止时间戳（ms） |
@@ -44,9 +45,9 @@ declareDomain('todoGroups', [])
 | `created` | number | 创建时间戳 |
 | `meta` | object | `{updatedAt, updatedBy, deletedAt, rev}`（DAO 自动维护） |
 
-**todoGroup 记录结构：** `{ id, name, meta }`。
+**todoGroup 记录结构：** `{ id, name, sort, created, meta }`（v8：`sort` 为记录字段可随 LWW 同步，`created` 稳定不随保存刷新）。
 
-删除走 `remove()` 软删除墓碑（写 `meta.deletedAt`），刷新后不复活；分组删除时，组内待办先移到未分组再软删分组。
+分组表 v8 起为完整同步表（四同步列齐备，与待办表对齐）；删除走 `remove()` 软删除墓碑（写 `deleted_at`，由列作为真相源），刷新后不复活；分组删除时，组内待办先移到未分组再软删分组。
 
 ## 4. 视图与交互
 

@@ -50,13 +50,16 @@ const TODO_README = [
   '| `id` | string | `uid()`（crypto.randomUUID） |',
   '| `title` | string | 标题 |',
   '| `done` | boolean | 完成态 |',
+  '| `completedAt` | number \\| null | 完成时间戳；标记完成时写入、取消时清空 |',
+  '| `created` | number | 创建时间戳（稳定，不随保存刷新） |',
   '| `priority` | high \\| medium \\| low | 优先级 |',
   '| `start` / `due` | number \\| null | 开始 / 截止时间戳 |',
   '| `note` | string | 备注 |',
   '| `tags` | string[] | 标签 |',
   '| `groupId` | string | 所属分组，空串表示未分组 |',
-  '| `meta` | object | `{updatedAt, updatedBy, deletedAt, rev}` |',
+  '| `meta` | object | `{updatedAt, updatedBy, deletedAt, rev}`；分组记录另有 `name/sort/created` |',
   '',
+  '分组表为完整同步表（四同步列齐备）；`sort` 为记录字段，可随 LWW 同步。',
   '删除走 `remove()` 软删除墓碑；分组删除时组内待办先移到未分组再软删分组。',
   '',
   '## 4. 视图与交互',
@@ -88,13 +91,13 @@ declareDomain('todoGroups', []);
 function seedIfEmpty() {
   if (state.todos.length || state.todoGroups.length) return;
   const now = Date.now(), day = 86400000;
-  const work = { id: uid(), name: '工作', meta: newMeta() };
-  const life = { id: uid(), name: '生活', meta: newMeta() };
+  const work = { id: uid(), name: '工作', sort: 0, created: now - day * 3, meta: newMeta() };
+  const life = { id: uid(), name: '生活', sort: 1, created: now - day * 3, meta: newMeta() };
   state.todoGroups.push(work, life);
   state.todos.push(
-    { id: uid(), title: 'Review 新提交的 PR', done: false, priority: 'high', start: now - day, due: now + day, note: '重点看并发部分', tags: ['代码评审'], groupId: work.id, created: now - day * 2, meta: newMeta() },
-    { id: uid(), title: '回复技术社区私信', done: false, priority: 'low', start: now - day, due: now - day, note: '', tags: ['社区'], groupId: life.id, created: now - day, meta: newMeta() },
-    { id: uid(), title: '整理本周周报', done: true, priority: 'medium', start: null, due: null, note: '', tags: [], groupId: work.id, created: now - day * 3, meta: newMeta() },
+    { id: uid(), title: 'Review 新提交的 PR', done: false, priority: 'high', start: now - day, due: now + day, note: '重点看并发部分', tags: ['代码评审'], groupId: work.id, created: now - day * 2, completedAt: null, meta: newMeta() },
+    { id: uid(), title: '回复技术社区私信', done: false, priority: 'low', start: now - day, due: now - day, note: '', tags: ['社区'], groupId: life.id, created: now - day, completedAt: null, meta: newMeta() },
+    { id: uid(), title: '整理本周周报', done: true, priority: 'medium', start: null, due: null, note: '', tags: [], groupId: work.id, created: now - day * 3, completedAt: now - day * 2, meta: newMeta() },
   );
   // 种子不逐个 commit（避免污染 outbox），启动末尾统一持久化一次
   store.set('todoGroups', state.todoGroups);
@@ -193,13 +196,16 @@ function addTodo(title, groupId = '', priority = 'medium', due = null, start = n
   insert('todos', {
     title: title.trim(), done: false, priority, start, due,
     note: extra.note || '', tags: Array.isArray(extra.tags) ? extra.tags : [],
-    groupId, created: Date.now(),
+    groupId, created: Date.now(), completedAt: null,
   });
 }
 
 function toggleTodo(id) {
   const todo = byId('todos', id);
-  if (todo) update('todos', id, { done: !todo.done });
+  if (todo) {
+    const done = !todo.done;
+    update('todos', id, { done, completedAt: done ? Date.now() : null });
+  }
 }
 
 /** 应用内确认弹窗：替代原生 confirm，键盘/焦点/主题一致 */
@@ -223,7 +229,9 @@ function askGroup(onDone) {
     { label: '取消' },
     { label: '创建', primary: true, onClick: close => {
       if (name.value.trim()) {
-        insert('todoGroups', { name: name.value.trim() });
+        // sort 取当前最大值 +1，作为记录字段持久化（可随 LWW 同步）
+        const maxSort = state.todoGroups.reduce((m, g) => Math.max(m, g.sort ?? 0), -1);
+        insert('todoGroups', { name: name.value.trim(), sort: maxSort + 1, created: Date.now() });
         onDone?.();
         close();
       }

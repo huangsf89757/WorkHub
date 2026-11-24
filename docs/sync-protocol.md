@@ -15,29 +15,24 @@
 
 ```js
 meta: {
-  updatedAt: Number,    // 最后修改时间（Unix ms），LWW 依据
-  updatedBy: String,    // 设备 ID（platform.getDeviceId）——平局判定仍用设备
+  updatedAt: Number,      // 最后修改时间（Unix ms），LWW 依据
+  updatedBy: String,      // 设备 ID（platform.getDeviceId）——平局判定
   deletedAt: Number|null, // 删除墓碑时间
-  rev: Number,          // 单调递增版本（诊断/乐观锁预留）
-  // ↓ 多用户协作预留（单机默认 me/private/home，见 ADR-005）
-  userId: String,       // 创建/最后修改者（审计/展示）
-  ownerId: String,      // 数据归属用户
-  scope: String,        // private | family | shared
-  householdId: String   // 所属家庭/协作空间
+  rev: Number             // 单调递增版本（诊断/乐观锁预留）
 }
 ```
 
-归属字段随 meta 整包 JSON 落库，不改业务表列；未来按用户/家庭高频过滤时提升为正式列。
+> schema v7 起 meta 只含同步四字段。家庭/组织归属字段（`userId`/`ownerId`/`scope`/`householdId`）已随 ADR-005 撤销移除。
 
-> 物理存储说明（schema v6）：上表是**内存/协议层**的完整 meta。落库时同步四字段以独立列为真相源（`meta` JSON 剔除已提升字段），读回由 `fromMeta()` 用独立列覆盖恢复，故上层读取的 meta 结构不变。详见 [数据库设计说明书 §7](database-design.md#7-通用字段与-meta-结构)。
+> 物理存储说明（schema v6）：上表是**内存/协议层**的完整 meta。落库时同步四字段以独立列为真相源（`meta` JSON 剔除已提升字段），读回由 `fromMeta()` 用独立列覆盖恢复。详见 [数据库设计说明书 §7](database-design.md#7-通用字段与-meta)。
 
 时钟：客户端时间可能漂移。v1 用客户端时间戳；服务端接入后应以 `serverTime` 校准（见 §6）。
 
 ## 3. 变更日志（outbox）
 
 - 每次 `commit()` 生成一条：`{seq, domain, op: 'upsert'|'delete', record, at}`
-- 本地 DB `outbox` 表持久化，页重载不丢
-- `push()` 成功后标记 `pushed=1` / 出队
+- 本地 DB `sys_outbox` 表持久化，页重载不丢
+- `push()` 成功后 ack 出队（直接删除队列行；v7 已移除恒为 0 的 `pushed` 列）
 - 离线时照常入队，恢复在线统一推送
 
 ## 4. 推送协议 push
@@ -82,14 +77,14 @@ syncNow():
 | 一端删除、一端编辑 | `deletedAt` 参与 LWW，时间戳大者胜；编辑较新则复活 |
 | 时间戳相等 | 按 `updatedBy` 字典序打破平局，保证各端收敛到同一结果 |
 
-## 8. 服务端职责（待实现）
+## 8. 服务端职责（Supabase 实现）
 
-- 鉴权：识别 user / device；单机默认 user=me，多用户升级后识别真实身份
-- 数据可见性：按 `meta.ownerId` + `meta.scope` + `meta.householdId` 决定推给谁（private 仅 owner、family 同家庭成员；见 ADR-005）
-- 存储：schema 与客户端同构（见 database-design.md）
-- LWW 合并：与服务端的权威 `serverTime` 对齐
-- 墓碑清理：定期清理超过保留期且已同步到所有端的删除记录
-- 可选：同步前 E2E 加密（v3）
+- 鉴权：Supabase Auth 邮箱登录；`auth.uid()` 标识用户，单机未登录时不启用同步
+- 数据可见性：RLS 策略 `user_id = auth.uid()`，数据库层强制隔离（组织架构未定，暂无团队共享）
+- 存储：通用表 `sync_records`（见 `supabase/migrations/0001_sync_schema.sql`），domain 由记录自报
+- LWW 合并：RPC `sync_push` 服务端判定，算法与客户端一致；`serverTime` 用客户端 HLC 毫秒
+- 墓碑清理：手动调用 `sync_purge_tombstones`，不开放给客户端
+- 端到端加密：待 v3（当前明文传输，依赖 HTTPS + RLS）
 
 ## 9. 接入步骤（CloudAdapter 就绪后）
 

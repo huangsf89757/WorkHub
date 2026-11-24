@@ -20,6 +20,8 @@
 | P2 | `tool-codec` | 编解码 | Tools | top | Base64 与 URL 编解码 | ⬜ |
 | P2 | `tool-crypto` | 加解密 | Tools | top | RSA-OAEP / AES-GCM，WebCrypto 本地运算 | ⬜ |
 | P2 | `daily-hotspots` | 每日热点 | Info | left | 多类别热点聚合：AI、文娱、科技、财经、体育等，可订阅类别与来源 | ⬜ |
+| P2 | `clipboard` | 剪贴板历史 | Tools | top | 系统级剪贴板历史：全局监听并留存复制记录，支持检索与快捷粘贴（类 PasteNow，依赖桌面壳） | ⬜ |
+| P2 | `shortcuts` | 快捷键 | Tools | 全局浮层（overlay） | 全局快捷键呼出软键盘，按键一键启动绑定的本机 App（依赖桌面壳） | ⬜ |
 
 ### `daily-hotspots` 计划要点
 
@@ -28,26 +30,40 @@
 - **钩子规划**：`home` 类别 Tab + 热点列表 · `detail` 摘要与跳转原文 · `panel` 类别/来源管理 · `status` 更新时间与条数 · `badge` 未读数
 - **数据域**：`hotspots`（条目）、`hotspotCategories`（类别）、`hotspotSources`（来源），遵循 `meta` / `outbox` 写路径
 
+### `clipboard` 计划要点
+
+- **能力**：全局监听剪贴板变更（文本 / 图片 / 文件路径），留存历史；支持关键字检索、置顶收藏、一键回写粘贴
+- **前置依赖**：桌面壳（Tauri / Electron，见「跨端能力」P2）；纯 Web 环境降级为仅记录应用内复制或展示引导
+- **权限与隐私**：首次启用需声明系统剪贴板读取权限；敏感内容可配忽略规则（可选叠加端到端加密 P3）
+- **钩子规划**：`home` 历史列表 + 搜索 · `detail` 内容预览 · `panel` 类型筛选与保留策略 · `status` 条目数与监听状态 · `badge` 新条目提示
+- **数据域**：`clipboardItems`、`clipboardSettings`，遵循 `meta` / `outbox` 写路径
+
+### `shortcuts` 计划要点
+
+- **能力**：配置面板把本机 App（应用路径 / Bundle ID）绑定到软键盘按键；注册全局快捷键（如 `⌥ + Space`）呼出浮层；按下对应键即可直接启动所绑定 App（类启动台，依赖桌面壳）
+- **软键盘**：以网格展示按键，每格显示 App 图标与名称；支持分组、改名、拖拽排序；空位可现场绑定或解绑
+- **前置依赖**：桌面壳（Tauri / Electron，见「跨端能力」P2）提供系统级全局热键注册与启动本地应用能力；纯 Web 环境无法注册全局热键/拉起本地 App，降级为仅展示配置界面与引导
+- **权限与隐私**：首次启用需声明全局热键监听与应用启动权限；绑定数据（App 标识 + 键位）仅本地存储，不随同步上传
+- **钩子规划**：因属全局浮层，标准五钩子仅部分适用——`panel` 绑定配置 · `status` 监听状态与绑定数量 · `badge` 呼出键冲突提示；`home` / `detail` 可留空或做简化入口
+- **数据域**：`shortcutBindings`（按键 → App 映射）、`shortcutSettings`（呼出键、浮层偏好），遵循 `meta` / `outbox` 写路径
+
 ## 跨端能力（非扩展，属于内核路线图）
 
 | 优先级 | 能力 | 描述 | 状态 |
 |---|---|---|---|
 | P1 | 数据域声明 | 扩展用 `declareDomain()` 注册自己的数据域 | ✅ 已就绪 |
 | P1 | 同步元数据 | 每条记录携带 `meta{updatedAt,updatedBy,deletedAt,rev}` | ✅ 已就绪 |
-| P1 | 变更日志 outbox | 本地写操作入队，供 push 消费 | ✅ 内存队列已就绪；DB `outbox` 表已建，落库待 CloudAdapter 接入 |
+| P1 | 变更日志 outbox | 本地写操作入队，供 push 消费 | ✅ 内存队列 + `sys_outbox` 落库与恢复均已就绪 |
 | P1 | LWW 冲突合并 | `lwwWinner` / `mergeDomain` 已实现 | ✅ 已就绪 |
 | P1 | 存储适配器 | `registerAdapter` 抽象，LocalAdapter 已接 | ✅ 已就绪 |
-| P2 | CloudAdapter | 云端适配器（Supabase / 自建网关） | ⬜ |
-| P2 | 真实 push/pull | `setRemoteAdapter()` 注入后启用 | ⬜ |
+| P2 | CloudAdapter | Supabase 云端适配器（REST/Auth/RPC 直连，零构建） | ✅ 代码就绪；需建 Supabase 项目并填 URL/anon key |
+| P2 | 真实 push/pull | `setRemoteAdapter()` 注入后启用 | ✅ 代码就绪；端到端验证需用户提供云端项目 |
 | P2 | 桌面壳 | Tauri / Electron 打包（macOS + Windows） | ⬜ |
 | P2 | 移动壳 | Capacitor 打包（iOS / iPadOS / Android） | ⬜ |
 | P3 | 同步冲突可视化 | 冲突记录的手动解决 UI | ⬜ |
 | P3 | 端到端加密 | 同步前对记录正文加密 | ⬜ |
-| P1 | 多用户身份抽象 | `identity.js` 当前用户/家庭上下文（默认 me/home） | ✅ 已就绪 |
-| P2 | 家庭与成员模型 | `sys_households`/`sys_memberships` 表 + owner/member 角色 | ✅ 预留就绪 |
-| P2 | 记录归属 meta | 每条记录带 userId/ownerId/scope/householdId | ✅ 已就绪 |
-| P2 | 家庭成员管理 UI | 邀请/角色分配界面（单机暂不需要） | ⬜ |
-| P2 | 可见范围控制 | private/family/shared 过滤与权限 | ⬜ |
+| P1 | 本地用户身份 | `identity.js` 当前用户（默认 me） | ✅ 已就绪 |
+| P3 | 通用组织结构 | 组织/团队/空间层级 + 可见性模型（家庭模型已撤销，待重新设计，ADR-005） | ⬜ |
 
 ## 界面样式扩展（第二扩展维度）
 

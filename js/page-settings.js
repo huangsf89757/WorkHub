@@ -8,7 +8,7 @@
  */
 import {
   el, icons, router, bus, store, registerSystemPage, toast, leaveSystem,
-  themeNames, applyTheme,
+  themeNames, applyTheme, input,
   getAllSkins, getActiveSkin, setActiveSkin,
   openPopMenu, openModal, fmtTime,
   SHORTCUT_ACTIONS, getShortcuts, setShortcut, resetShortcuts,
@@ -18,6 +18,9 @@ import { openSkinDetail } from './page-skin-detail.js';
 import { syncSnapshot } from './sync.js';
 import { downloadBackup, downloadDatabaseFile, readBackupFile, applyBackup, getLastBackupAt } from './backup.js';
 import platform, { PLATFORM_LABEL } from './platform.js';
+import { getCloudConfig, setCloudConfig, clearCloudConfig, isValidCloudUrl, CLOUD_PREFILL } from './cloud-config.js';
+import { signUp, signIn, signOut, cloudAuthSnapshot, isSignedIn } from './cloud-auth.js';
+import { refreshCloudSync, syncNowCloud, cloudSyncActive } from './cloud-sync.js';
 
 /* ---------- 版本信息（version.json 异步读取，失败降级） ---------- */
 let VERSION = { name: 'WorkHub', version: '—', builtAt: '—' };
@@ -251,6 +254,101 @@ function confirmImport(obj, checked) {
     },
   ]);
 }
+/** 云端同步（Supabase）：配置 / 注册 / 登录 / 立即同步 */
+function cloudSyncView() {
+  const cfg = getCloudConfig();
+  const auth = cloudAuthSnapshot();
+  const active = cloudSyncActive();
+  const s = syncSnapshot();
+
+  const urlInput = input({ type: 'url', placeholder: 'https://your-project.supabase.co', value: cfg.url || CLOUD_PREFILL.url, spellcheck: 'false' });
+  const keyInput = input({ type: 'text', placeholder: 'anon / publishable key', value: cfg.anonKey || CLOUD_PREFILL.anonKey, spellcheck: 'false' });
+  const emailInput = input({ type: 'email', placeholder: '邮箱', autocomplete: 'email' });
+  const passInput = input({ type: 'password', placeholder: '密码（至少 6 位）', autocomplete: 'new-password' });
+
+  const redraw = () => bus.emit('route');
+  const status = active ? '已连接 · 自动同步中'
+    : (cfg.configured ? '已配置 · 未登录' : '未配置（本地优先）');
+
+  const saveConfig = async () => {
+    const url = urlInput.value.trim();
+    if (!isValidCloudUrl(url)) { toast('Project URL 需为 https 地址'); return; }
+    if (!keyInput.value.trim()) { toast('请填写 anon key'); return; }
+    setCloudConfig(url, keyInput.value);
+    await refreshCloudSync();
+    toast('云端配置已保存');
+    redraw();
+  };
+
+  const doSignUp = async () => {
+    const email = emailInput.value.trim(), password = passInput.value;
+    if (!email || password.length < 6) { toast('请填写邮箱与至少 6 位密码'); return; }
+    try {
+      const r = await signUp(email, password);
+      if (r?.pendingConfirmation) toast('注册成功，请查收确认邮件后再登录');
+      else { await refreshCloudSync(); toast('注册并登录成功'); }
+      redraw();
+    } catch (e) { toast(e.message); }
+  };
+
+  const doSignIn = async () => {
+    const email = emailInput.value.trim(), password = passInput.value;
+    if (!email || !password) { toast('请填写邮箱与密码'); return; }
+    try {
+      await signIn(email, password);
+      await refreshCloudSync();
+      toast('登录成功，云端同步已启用');
+      redraw();
+    } catch (e) { toast(e.message); }
+  };
+
+  const doSignOut = async () => {
+    await signOut();
+    await refreshCloudSync();
+    toast('已登出，回到本地模式');
+    redraw();
+  };
+
+  const doSyncNow = async () => {
+    try {
+      const r = await syncNowCloud();
+      toast(r ? `同步完成：上行 ${r.pushed} · 下行 ${Object.keys(r.pulled || {}).length} 域` : '云端未启用');
+    } catch (e) { toast(e.message); }
+  };
+
+  const doClear = () => {
+    clearCloudConfig();
+    refreshCloudSync();
+    toast('已清除云端配置');
+    redraw();
+  };
+
+  const btn = (label, onClick, cls = '') => el('button', { class: 'btn ' + cls, onclick: onClick }, label);
+
+  return cardFor('account', '云端同步（Supabase）',
+    infoRow('状态', status),
+    infoRow('待推送变更', s.pending),
+    el('p', { class: 'hint' }, '本地优先不变：所有写入先落本机，联网登录后后台自动按 LWW 合并。'),
+    el('div', { class: 'setg-field' }, el('label', {}, 'Project URL'), urlInput),
+    el('div', { class: 'setg-field' }, el('label', {}, 'anon / publishable key'), keyInput),
+    el('div', { class: 'setg-actions' },
+      btn('保存配置', saveConfig, 'primary'),
+      cfg.configured ? btn('清除配置', doClear) : null),
+    auth.signedIn
+      ? el('div', { class: 'setg-field' },
+          el('p', { class: 'hint' }, `已登录：${auth.email || auth.userId}`),
+          el('div', { class: 'setg-actions' },
+            btn('立即同步', doSyncNow, 'primary'),
+            btn('登出', doSignOut)))
+      : el('div', {},
+          el('div', { class: 'setg-field' }, el('label', {}, '邮箱'), emailInput),
+          el('div', { class: 'setg-field' }, el('label', {}, '密码'), passInput),
+          el('div', { class: 'setg-actions' },
+            btn('注册', doSignUp),
+            btn('登录', doSignIn, 'primary'))),
+    el('p', { class: 'hint' }, '首次使用需先在 Supabase 建项目并执行 supabase/migrations/0001_sync_schema.sql，详见 docs/supabase-setup.md。'));
+}
+
 function accountView() {
   const s = syncSnapshot();
   return [
@@ -265,10 +363,11 @@ function accountView() {
       infoRow('设备 ID', s.deviceId, true),
       infoRow('运行环境', PLATFORM_LABEL[platform.platform] || platform.platform),
       infoRow('网络', s.online ? '在线' : '离线'),
-      infoRow('同步引擎', s.enabled ? '已接入' : '未接入（架构预留）'),
+      infoRow('同步引擎', s.enabled ? '已接入云端同步' : '未启用（本地优先）'),
       infoRow('待推送变更', s.pending),
       infoRow('本地存储', s.storage?.adapter || 'local-sqlite-idb'),
       el('p', { class: 'hint' }, '本地优先：变更先落本地，联网后由同步引擎按 LWW 策略在多端合并。')),
+    cloudSyncView(),
   ];
 }
 

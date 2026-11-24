@@ -10,7 +10,6 @@ import { enqueue } from './sync.js';
 import { getDeviceId } from './platform.js';
 import { nextTs } from './hlc.js';
 import { mergeDomain, purgeTombstones, getLastPullAt } from './sync.js';
-import { ownershipMeta, getCurrentUserId } from './identity.js';
 
 /* ---------- 通用工具 ---------- */
 export const uid = () => crypto.randomUUID?.()
@@ -20,28 +19,24 @@ const clone = value => JSON.parse(JSON.stringify(value));
 
 /**
  * 为新记录生成同步元数据。
- * 归属字段（ownerId/scope/householdId）随 meta 持久化，单机默认 = 当前用户/private/当前家庭。
- * updatedBy 仍是 deviceId（LWW 平局规则不变）；userId 记录"由谁创建"用于未来审计。
+ * 只含同步四字段：updatedAt/updatedBy/deletedAt/rev。
+ * 家庭/组织归属字段（userId/ownerId/scope/householdId）已随基座撤销移除。
  */
-export function newMeta(opts = {}) {
+export function newMeta() {
   return {
     updatedAt: nextTs(),
     updatedBy: getDeviceId(),
     deletedAt: null,
     rev: 1,
-    userId: opts.userId ?? getCurrentUserId(), // 创建者/作者，默认当前用户（单机=me）
-    ...ownershipMeta(opts),
   };
 }
 
-/** 触碰记录：刷新 LWW 时间戳并递增版本号；保留原归属，仅更新作者维度 */
+/** 触碰记录：刷新 LWW 时间戳并递增版本号 */
 export function touch(record) {
   record.meta = record.meta || newMeta();
   record.meta.updatedAt = nextTs();
   record.meta.updatedBy = getDeviceId();
-  record.meta.userId = getCurrentUserId(); // 最后修改者（单机=me），归属 ownerId 保持不变
   record.meta.rev = (record.meta.rev || 0) + 1;
-  if (record.meta.ownerId === undefined) Object.assign(record.meta, ownershipMeta());
   return record;
 }
 

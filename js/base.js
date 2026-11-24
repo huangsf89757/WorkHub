@@ -29,17 +29,10 @@ export const bus = {
    ============================================================ */
 export const PREFIX = 'wh_';
 
-/** 业务域逻辑 key → SQLite 表名（与 db.js TABLES 保持一致） */
+/** 业务域逻辑 key → SQLite 表名（与 db.js TABLES 保持一致；扩展表由扩展自行声明，不入此表） */
 const DOMAIN_TABLE = Object.freeze({
   todos: 'ext_todo_items',
   todoGroups: 'ext_todo_groups',
-  projects: 'ext_projects',
-  tasks: 'ext_project_tasks',
-  snippets: 'ext_snippets',
-  complaints: 'ext_complaints',
-  notes: 'ext_notes_nodes',
-  posts: 'ext_blog_posts',
-  learning: 'ext_learning',
 });
 
 /** 偏好/身份逻辑 key（存进 sys_settings 表命名空间） */
@@ -47,7 +40,7 @@ const PREF_KEYS = Object.freeze(new Set([
   'theme', 'skin', 'skinMounts', 'skinPoints', 'menuLayout',
   'extEnabled', 'rightCollapsed', 'shortcuts', 'searchRules',
   'links', // 无独立表的通用 KV，归入系统设置命名空间
-  'currentUserId', 'currentUserName', 'currentHouseholdId', 'currentHouseholdName', 'defaultScope',
+  'currentUserId', 'currentUserName',
   'deviceId',
 ]));
 
