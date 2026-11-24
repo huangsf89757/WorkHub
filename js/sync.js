@@ -95,6 +95,50 @@ export function mergeDomain(localArr, remoteArr) {
   }
   return { records: [...map.values()], changed };
 }
+
+/* ============================================================
+   按扩展可插拔的合并策略（ADR-008）
+   策略是域的静态属性：写入/合并时按 domain 取策略，未声明的域默认 lww-record。
+   ============================================================ */
+const LWW_RECORD = Object.freeze({
+  name: 'lww-record',
+  transport: 'record',
+  encode: change => change,                 // record 形态：载荷即整条变更（深拷贝由 enqueue 负责）
+  merge: (local, remote) => mergeDomain(local, remote),
+});
+const BUILTIN_STRATEGIES = Object.freeze({ 'lww-record': LWW_RECORD });
+const domainStrategies = new Map();
+
+/**
+ * 为某个域声明同步策略。策略可为内置名（'lww-record'）或自定义策略对象
+ * （须含 name / transport / encode / merge）。同域重复声明以最后一次为准，便于未来升级。
+ * @param {string} domain 数据域名
+ * @param {{strategy: string|object}} options 策略配置
+ */
+export function declareSync(domain, { strategy } = {}) {
+  const resolved = typeof strategy === 'string'
+    ? BUILTIN_STRATEGIES[strategy]
+    : strategy;
+  if (!resolved || typeof resolved.merge !== 'function' || typeof resolved.encode !== 'function')
+    throw new Error(`未知同步策略：${String(strategy)}`);
+  domainStrategies.set(domain, resolved);
+}
+
+/** 取域的同步策略；未声明则回退到默认 lww-record。 */
+export function getSyncStrategy(domain) {
+  return domainStrategies.get(domain) || LWW_RECORD;
+}
+
+/** 按域的 merge 函数执行合并（默认等价于 mergeDomain）。 */
+export function mergeForDomain(domain, local, remote) {
+  return getSyncStrategy(domain).merge(local, remote);
+}
+
+/** 按域的 encode 函数把本地变更编码为同步载荷。 */
+export function encodeForDomain(domain, change) {
+  return getSyncStrategy(domain).encode(change);
+}
+
 export const TOMBSTONE_RETAIN_MS = 30 * 86400000;
 /**
  * 清理墓碑。必须同时满足：

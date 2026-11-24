@@ -115,7 +115,7 @@ declareSync('whiteboard', { strategy: 'crdt', crdt: 'yjs' }); // 高频多人
 
 1. [x] 写设计过程文档 `docs/plans/2026-11-24-sync-strategy-design.md`
 2. [x] 本 ADR-008 定稿
-3. [ ] `sync-protocol.md` 补"按扩展可插拔"章节
-4. [ ] 实现期：`sync.js` 加 `declareSync` 与策略注册表（默认 `lww-record`，行为不变）
-5. [ ] 实现期：云端 `0002_scope_columns.sql` 迁移（scope_type/scope_id + 回填）
+3. [x] `sync-protocol.md` 补"按扩展可插拔"章节
+4. [x] 实现期：`sync.js` 加 `declareSync` 与策略注册表（默认 `lww-record`，行为不变）—— 6 项 TDD 测试通过，全套 52/52
+5. [x] 实现期：云端 `0002_scope_columns.sql` 迁移（scope_type/scope_id + 回填 + crdt-op 约束 + 索引 + sync_push 填 scope）—— `test_scope.sql` 全通过，线上验证 push/pull 回归正常
 6. [ ] 未来：某域需要字段级/CRDT 时注册策略并按需引入 CRDT 库
