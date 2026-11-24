@@ -17,7 +17,7 @@ HSF：iOS 开发者，不限于此——Swift / TypeScript / Go。日常需要�
 - 双扩展维度：① 业务功能扩展（自注册 home / detail / panel / status / badge）；② 界面样式（分栏为默认，3D 工作室把扩展挂到场景实物上），全部清单见 FEATURES.md
 - 扩展式架构：全部占位业务扩展已移除，清单见 FEATURES.md
 - 本地优先数据层：每条记录带同步元数据，outbox 记录变更；存储经适配器抽象
-- 同步引擎骨架：LWW 冲突合并、增量 pull，v1 离线 no-op，云端适配器待接入
+- 同步引擎：LWW 冲突合并、HLC 单调时间戳、outbox 落库、墓碑安全清理与增量 pull；Supabase CloudAdapter 已落地并由 `cloud-sync.js` 自动注入（REST/Auth/RPC 直连，零 SDK），未配置时保持离线 no-op
 - 平台适配层：Web / PWA / Electron / Tauri / Capacitor 统一探测
 - 主题切换：4 套主题，偏好持久化
 

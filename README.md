@@ -21,7 +21,7 @@
    python3 -m http.server 8000
    ```
 2. 浏览器打开 `http://localhost:8000`
-3. 云端同步：设置 → 账户 → 云端同步（Supabase），Project URL 与 publishable key 已预填，用邮箱注册/登录即启用；未配置时保持纯本地模式
+3. 云端同步：设置 → 账户 → 云端同步（Supabase），Project URL 与 publishable key 已在设置页预填，点「保存配置」后用邮箱注册/登录即启用；若项目开启了 Confirm email，需先在 Supabase 控制台关闭（见 [接入指南](docs/supabase-setup.md)）。未配置时保持纯本地模式
 
 > 自建后端见 [docs/supabase-setup.md](docs/supabase-setup.md)。
 

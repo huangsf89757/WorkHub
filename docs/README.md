@@ -5,7 +5,7 @@
 | 文档 | 说明 |
 |---|---|
 | [architecture.md](architecture.md) | 架构 v2：五区布局、双扩展维度、分层、数据流、全端策略（ADR-003/004） |
-| [database-design.md](database-design.md) | 数据库设计说明书（权威，v7 系统基座）：8 张表逐列定义、ER 图、命名规范、存储层次、数据流、迁移机制、DAO/同步、完整建表 SQL |
+| [database-design.md](database-design.md) | 数据库设计说明书（权威，v8 系统基座）：8 张表逐列定义、ER 图、命名规范、存储层次、数据流、迁移机制、DAO/同步、完整建表 SQL |
 | [multi-user-design.md](multi-user-design.md) | 多用户协作演进（ADR-005）· **已撤销**：家庭模型移除，待通用组织结构重新设计 |
 | [sync-protocol.md](sync-protocol.md) | 多端同步协议：outbox / LWW / 软删除 / push-pull / CloudAdapter 接入 / 按扩展可插拔策略 |
 | [supabase-setup.md](supabase-setup.md) | Supabase 云端后端接入：建项目/跑迁移/RLS 验证/配置/多端验证 |

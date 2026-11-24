@@ -16,7 +16,7 @@ registerSkin({
   icon: icons.dashboard,
   desc: '...',
   layout: 'panels',
-  mountPoints: [ /* left / top / center / right / bottom，见下表 */ ],
+  mountPoints: [ /* left / top / center / right / bottom / left-bottom，见下表 */ ],
   // 无 renderStage：走内核默认五区渲染
 });
 ```
@@ -58,7 +58,7 @@ registerSkin({
 | `terminal` | 终端 | 黑底荧光绿等宽 |
 | `oled` | OLED | 纯黑省电 |
 
-切换入口：右上角用户面板 → 主题；或设置页 → 外观 · 主题。偏好存 `localStorage['wh_theme']`。
+切换入口：右上角用户面板 → 主题；或设置页 → 外观 · 主题。偏好存 `localStorage['wh_sys_settings_theme']`（`wh_theme` 等旧键启动时自动迁移）。
 
 ## 5. 样式约束
 
@@ -71,12 +71,12 @@ registerSkin({
 
 - 依赖 `core.js` 五区渲染（`renderLeft/Top/Center/Right/Bottom`）+ `applySkinLayout()`
 - 无专属 `settingsPanel()`（设置页界面样式卡只做切换）
-- 显式声明 5 个 `mountPoints`（上表五区），供扩展中心展示；扩展挂载位置用 `placementOf()` 解析，点击标签走 `placementPicker()`
+- 声明 6 个 `mountPoints`（五区 + `left-bottom` 次级挂载点），供扩展中心展示；扩展挂载位置用 `placementOf()` 解析，点击标签走 `placementPicker()`
 - 扩展中心中 TODO 显示为「左侧 · 主菜单」；切到其他界面样式后该文案会随界面样式变化
 
 ## 7. 切换行为
 
 从其他界面样式切回 classic：
-1. `setActiveSkin('classic')` 写 `wh_skin='classic'`，发 `skin` 与 `route` 事件
+1. `setActiveSkin('classic')` 写偏好 `skin='classic'`（物理键 `wh_sys_settings_skin`），发 `skin` 与 `route` 事件
 2. `applySkinLayout()` 设 `data-skin=classic`、`data-skin-layout=panels`
 3. CSS 恢复五区显隐；`boot()` 下次启动进入第一个导航扩展（非舞台态）

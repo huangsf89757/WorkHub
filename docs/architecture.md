@@ -12,7 +12,7 @@
 | 布局分区 | sidebar / titlebar / inspector / statusbar（语义混杂） | **五区模型**：top / left / center / right / bottom |
 | 数据记录 | 普通对象 | **每条带同步元数据 meta** |
 | 存储 | core 直连 localStorage + db.js | **storage 适配器抽象** + LocalAdapter |
-| 同步 | 无 | **sync 引擎骨架**（outbox / LWW / pull 合并），v1 no-op |
+| 同步 | 无 | **sync 引擎**（outbox 落库 / HLC 时间戳 / LWW / 墓碑清理 / pull 合并）+ 已落地的 Supabase CloudAdapter（无配置时 no-op） |
 | 平台 | 浏览器单一 | **platform 适配层**：Web/PWA/Electron/Tauri/Capacitor |
 | 系统页面 | 混在 ext-*.js | pages.js 独立，属于内核 |
 | **界面样式** | 单一分栏 + 主题色切换 | **界面样式（Skin）第二扩展维度**：分栏为默认界面样式，3D 工作室等样式以扩展实现，实物挂载扩展 |
@@ -66,7 +66,7 @@
 | `id / name / icon / desc` | 元数据，用于设置页卡片展示 |
 | `layout` | `'panels'`（默认五区）或 `'stage'`（界面样式完全接管 center 舞台） |
 | `renderStage(ctx)` | stage 界面样式提供，返回主舞台 DOM 节点 |
-| `mountPoints` | **所有界面样式必须声明**的挂载点列表 `[{id,name,desc,role?,icon?,defaultExt?}]`；panels 为五区，stage 为场景实物；未声明时 panels 回落五区 |
+| `mountPoints` | 挂载点列表 `[{id,name,desc,role?,icon?,defaultExt?}]`；panels 为五区（含 `left-bottom` 共 6 项），stage 为场景实物；未声明时 panels 回落五区，`resolveMount()` 按「用户配置 → `defaultExt`」解析 |
 | `configureMounts()` | 可选，界面样式的挂载配置入口；扩展中心点击扩展的挂载标签时调用（未提供则走经典五区 picker） |
 | `settingsPanel()` | 可选，界面样式专属设置面板，嵌入设置页 |
 
@@ -125,7 +125,7 @@
 ### 4.2 data.js（数据层）
 
 - `state`：全局真相源
-- `declareDomain(name, seed)`：扩展声明数据域
+- `declareDomain(name, seed, opts)`：扩展声明数据域；`opts.table`（形如 `ext_<id>_<名称>`）让适配器自动建表，省略则只存 localStorage 镜像
 - `commit(key, op, record)`：统一写路径 → 镜像 + adapter + outbox + `bus.emit('data')`
 - 通用 CRUD：`insert / update / remove / alive / byId`
 - 每条记录带 `meta`：`{updatedAt, updatedBy, deletedAt, rev}`（见 §5）
@@ -133,7 +133,7 @@
 
 ### 4.3 storage.js（存储抽象）
 
-适配器契约：`init / persistDomain / flush / info`。业务层只认这三个动作。LocalAdapter（db.js）已注册；未来 CloudAdapter 由 sync.js 注入。**换后端不改业务代码**。
+适配器契约（storage.js）：`init / persistDomain / flush / info`，另有 `registerDomain / exportBytes / outboxAppend / outboxAck / outboxLoad`。业务层只认持久化动作。LocalAdapter（db.js）已注册；云端走独立的 Supabase CloudAdapter（REST/Auth/RPC），由 `cloud-sync.js` 注入 sync.js。**换后端不改业务代码**。
 
 ### 4.4 platform.js（平台适配）
 
@@ -144,7 +144,7 @@
 
 ### 4.5 sync.js（同步引擎）
 
-v1 为 no-op 骨架，API 已冻结：`setRemoteAdapter / enqueue / push / pull / syncNow / startAutoSync`。详细协议见 `docs/sync-protocol.md`。
+管线已实现：`enqueue / restoreOutbox / push / pull / syncNow / startAutoSync / stopAutoSync`，合并与时钟为 `lwwWinner / mergeDomain / purgeTombstones` + `hlc.js` 单调时间戳。无 CloudAdapter 时 push/pull 安全 no-op，应用完全离线可用。云端适配器由 `cloud-sync.js` 在会话就绪后通过 `setRemoteAdapter()` 注入并启动自动同步（30s 轮询）。详细协议见 `docs/sync-protocol.md`。
 
 ## 5. 数据模型与同步元数据
 
@@ -195,7 +195,7 @@ v1 为 no-op 骨架，API 已冻结：`setRemoteAdapter / enqueue / push / pull 
 - **领域整体重写**：persistDomain 每次全表 DELETE+INSERT。个人规模够用；多端高频同步时应改行级 upsert（v2）。
 - **LWW 粒度**：按记录级，两端同时编辑同一条会丢一端。笔记类未来可升级字段级合并 / CRDT。
 - **路由内存态**：刷新回到默认页；同步落地后可把 `{ext,mode,id}` 编入 URL 便于分享。
-- **自动同步**：startAutoSync 已提供，但需在 CloudAdapter 注入后由 main.js 调用。
+- **自动同步**：由 `cloud-sync.js` 的 `refreshCloudSync()` 在检测到有效会话时注入 adapter 并调用 `startAutoSync()`；`main.js` 只调非阻塞的 `initCloudSync()`。
 
 ## 9. 架构评估后的优化（ADR-006）
 > 2026-11-23 · 针对代码评审中发现的问题，逐项落地并配测试（`npm test`，Node 内置 test runner，无依赖）
@@ -218,7 +218,7 @@ v1 为 no-op 骨架，API 已冻结：`setRemoteAdapter / enqueue / push / pull 
 - `persistDomain` 仍为整域重写；多端高频同步前需改行级 upsert。
 - 重绘仍是整区重建。扩展可声明 `domains: [...]`（可选）：无关域变更时只刷新 left / top / bottom，center / right 不重建；未声明的扩展保持整体重绘。目前仅 todo 声明。
 - 内置域（todos 等）的手写映射仍在 `db.js`，尚未迁到各扩展；新扩展请用 `table` 选项。
-- 同步仍无 CloudAdapter，端到端联网路径未经真实后端验证。
+- CloudAdapter 已实现并通过 mock 单测覆盖请求格式；真实 Supabase 端到端与双端同步为历史人工验证记录，不在仓库自动化测试中（`tests/` 无真实网络/双会话用例）。
 
 ## 10. ADR-007：数据库基座裁剪（schema v7，2026-11-24）
 

@@ -1,6 +1,6 @@
 /* db.js — 本地持久层 LocalAdapter：sql.js(WASM) + IndexedDB 存档
  *
- * 实现 storage.js 适配器契约；schema 与 docs/database-design.md 同步（系统基座 v7）。
+ * 实现 storage.js 适配器契约；schema 与 docs/database-design.md 同步（系统基座 v8）。
  * 领域整体重写（全表 DELETE + INSERT），个人规模足够；同步列已预埋。
  *
  * 范围（v7 起）：只维护系统基座表（sys_）+ 先行保留的 TODO 扩展表。

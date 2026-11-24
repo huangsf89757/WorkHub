@@ -9,9 +9,9 @@
 | 层 | 已完成 | 未完成 |
 |---|---|---|
 | 内核 core.js | 五区渲染、registry/router/bus/store、el、4 主题、**界面样式注册表 + stage 舞台** | URL 路由（刷新定位） |
-| 数据层（schema v7） | 通用 DAO、`meta` 同步元数据、outbox、LWW 合并、storage 适配器；内核只保留系统基座 6 表 + TODO 2 表 | 行级 upsert（当前整域重写） |
+| 数据层（schema v8） | 通用 DAO、`meta` 同步元数据、outbox 落库、LWW 合并、storage 适配器；内核只保留系统基座 6 表 + TODO 2 表，TODO 表 v8 补齐同步列与 `completed_at` | 行级 upsert（当前整域重写） |
 | 平台层 | Web/PWA/Electron/Tauri/Capacitor 探测、deviceId、网络状态 | Tauri/Capacitor 真机桥接 |
-| 同步层 | push/pull 骨架、冲突合并算法、Supabase CloudAdapter 代码（REST/Auth/RPC）、真实项目落地、8 项端到端冒烟通过 | 双端真实设备同步验收（控制台邮箱配置后） |
+| 同步层 | push/pull 管线、HLC/LWW 合并、墓碑清理、Supabase CloudAdapter（REST/Auth/RPC）已实现并由 `cloud-sync.js` 自动注入；mock 单测覆盖请求格式 | 真实双端设备同步验收（历史人工记录，非仓库自动化测试） |
 | 界面样式 | classic（分栏）、studio3d（3D 工作室，6 实物挂载点） | kanban / terminal / focus |
 | 业务扩展 | **1 个**（`todo`） | FEATURES.md 中其余 11 个 |
 | 系统页 | 扩展中心、设置（含界面样式切换与挂载配置） | — |
@@ -82,12 +82,11 @@
 - 验收：真机/模拟器可运行，窄屏降级布局可用
 
 ### Sprint 8 · 多端同步闭环（W11–W12）✅
-- 选定后端（Supabase）→ 实现 CloudAdapter（REST/Auth/RPC 直连，零构建）→ `setRemoteAdapter()` 注入 → 设置页配置 UI ✅
-- Supabase 项目 WorkHub 已建（ap-southeast-1）→ 迁移 `0001_sync_schema.sql` 已应用 → RLS 验证通过 → 配置已预填 ✅
-- 端到端冒烟测试 8/8 通过：登录、push/pull、RLS 隔离、LWW 新旧覆盖、增量游标；修复 `sync_pull` 跨语句引用 CTE 导致的关系不存在缺陷 ✅
-- 双端同步验证 6/6 通过：同账号两独立会话 A 写→B 拉取、反向、冲突 LWW 收敛、终态一致、跨用户隔离 ✅
-- 验收：双端真实同步成功、离线写入恢复在线后自动推送 ✅
-- 遗留（外部条件）：应用内邮箱注册需用户在 Supabase 控制台关闭 Confirm email（新项目邮件配额受限否则触发 rate limit）；此前验证用已确认测试用户绕过，不影响同步引擎正确性
+- 选定后端（Supabase）→ 实现 CloudAdapter（REST/Auth/RPC 直连，零构建）→ 由 `cloud-sync.js` 的 `refreshCloudSync()` 注入 adapter → 设置页配置 UI ✅
+- Supabase 项目 WorkHub 已建（ap-southeast-1）→ 迁移 `0001_sync_schema.sql` 已应用 → RLS 验证脚本 `test_rls.sql`（用户隔离）→ 设置页预填 URL/key，用户点「保存配置」生效 ✅
+- 仓库内 mock 单测（`cloud-adapter.test.js`）：登录、`sync_push`/`sync_pull` RPC 请求格式、apikey/Bearer、401 续期等 ✅
+- 端到端/双端验收（8 项冒烟 + 6 项双端）为**历史人工验证记录**，在真实 Supabase 实例上完成，**不在仓库自动化测试中**；`tests/` 目前无真实网络/双会话测试
+- 外部条件：应用内邮箱注册需用户在 Supabase 控制台关闭 Confirm email（新项目邮件配额受限否则触发 rate limit）；此前验证用已确认测试用户绕过，不影响同步引擎正确性
 
 ### Sprint 9 · 增强与打磨（W13+）⬜
 - 新界面样式：kanban（看板列挂载）/ terminal（命令映射）/ focus（极简窄屏）
@@ -105,7 +104,7 @@ Sprint 0 架构基线
    │
    ├──► Sprint 6 桌面壳 ⏸ ──┐
    └──► Sprint 7 移动壳 ⏸ ──┼──► Sprint 8 真实同步 ✅ ──► Sprint 9 增强
-                            └──► (云端已落地；双端同步 6/6 验证通过)
+                            └──► (云端已落地；双端同步 6/6 为历史人工验证)
 ```
 
 - 硬依赖：Sprint 2 的 dashboard 依赖 projects/todos/notes 的数据域
@@ -116,7 +115,7 @@ Sprint 0 架构基线
 
 | 项 | 条件/风险 | 应对 |
 |---|---|---|
-| CloudAdapter | 代码就绪；需 Supabase 项目与凭据 | 未填配置前 sync 保持 no-op，主线不受阻 |
+| CloudAdapter | 代码就绪；需 Supabase 项目与凭据 | 未填配置/无会话时 sync 保持 no-op，主线不受阻 |
 | 桌面/移动壳 | 需 Tauri / Capacitor + Xcode / Android Studio | 放 W7 之后，纯 Web 功能不受影响 |
 | LWW 字段级冲突 | 记录级 LWW 会丢一端编辑 | 笔记类 v2 升级字段级/CRDT（Sprint 9） |
 | 写放大 | `persistDomain` 整域重写 | 高频同步时改行级 upsert（Sprint 9） |
@@ -127,8 +126,8 @@ Sprint 0 架构基线
 
 - Sprint 0 ✅ 完成
 - Sprint 1 ✅ 完成（CDP 端到端验证通过；含 2 个持久化 bug 修复）
-- **v7 基座裁剪（2026-11-24）**：删除 9 张空壳扩展表、家庭/成员表、未接入的 `ext_mounts`/`ext_kv`；版本表改单行；outbox 去 `pushed`；归属字段从 meta 移除（见 ADR-007）
-- **Sprint 8 云端同步落地（2026-11-24）**：Supabase 项目 + 迁移 + RLS 验证 + 配置预填 + 8 项端到端冒烟 + 6 项双端同步验证全通过；修复 `sync_pull` CTE 缺陷。Sprint 8 完成
+- **v7 基座裁剪 + v8 TODO 补齐（2026-11-24，当前 schema v8）**：删除 9 张空壳扩展表、家庭/成员表、未接入的 `ext_mounts`/`ext_kv`；版本表改单行；outbox 去 `pushed`；归属字段从 meta 移除（ADR-007）；TODO 表补 `completed_at`、分组升为完整同步表
+- **Sprint 8 云端同步落地（2026-11-24）**：Supabase 项目 + 迁移 + RLS 隔离验证 + 设置页配置预填 + CloudAdapter 自动注入；仓库内 mock 单测通过，8 项端到端冒烟 + 6 项双端同步为历史人工验证记录；修复 `sync_pull` CTE 缺陷。Sprint 8 完成
 - Sprint 2–7、9 ⬜ 待开始（其中 6/7 需原生工具链外部条件）
 
 每完成一个 Sprint，更新本节状态与 FEATURES.md 对应条目标记。

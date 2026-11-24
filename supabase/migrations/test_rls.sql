@@ -1,5 +1,6 @@
 -- RLS 与同步 RPC 验证脚本（在 Supabase SQL Editor 中以 postgres 角色运行）
--- 用途：确认用户隔离与 LWW 合并按预期工作。全部断言通过则输出 "ALL RLS TESTS PASSED"。
+-- 用途：确认 RLS 用户隔离按预期工作（两用户互不可见对方记录）。全部断言通过则输出 "ALL RLS TESTS PASSED"。
+-- 注意：本脚本只验证 RLS 隔离，不调用 sync_push、不验证 LWW 合并；LWW 由 tests/sync.test.js 覆盖。
 -- 注意：本脚本会创建临时测试用户，测试后自动删除；仅用于验证，不影响业务数据。
 
 do $$

@@ -41,7 +41,7 @@ registerSkin({
 
 ## 4. 挂载配置
 
-配置模型：`skinMounts['studio3d'][pointId] = extId`，存 `localStorage['wh_skinMounts']`（系统偏好，与业务数据分离）。
+配置模型：`skinMounts['studio3d'][pointId] = extId`，存 `localStorage['wh_sys_settings_skinMounts']`（系统偏好，与业务数据分离；旧键 `wh_skinMounts` 启动时自动迁移）。
 
 解析顺序（`core.js` 的 `resolveMount` / 界面样式内读取）：用户配置优先 → 回落 `defaultExt`。
 
@@ -50,7 +50,7 @@ registerSkin({
 2. 设置页 → 界面样式 → 当前界面样式专属设置面板（`settingsPanel()`）→「配置」
 3. 扩展中心 → 已安装扩展的挂载标签（如「电脑 · 3D 工作室」）→ 调用 `configureMounts()` 打开同一弹窗
 
-扩展中心的挂载点卡片也来自 `mountPoints`：6 个实物 + 各自当前挂载的扩展名，随本界面样式切换而显示。
+扩展中心的挂载点卡片来自契约里的 `mountPoints`（即 6 个内建实物）+ 各自当前挂载的扩展名，随本界面样式切换而显示；用户在详情页新增的自定义挂载点会出现在舞台与配置弹窗中（`stageObjects()` 合并内建 + 自定义）。
 
 弹窗三个动作：取消 / 重置默认（清空所有配置回落 defaultExt）/ 保存（逐项写 `setSkinMount`）。
 
@@ -90,5 +90,5 @@ registerSkin({
 ## 8. 已知取舍
 
 - 纯 CSS 3D 等距投影，非真实 3D 引擎；实物为几何拟物，无复杂模型
-- 挂载点固定 6 个（写死在 `OBJECTS`），新增需改代码；未来可配置化
+- 内建挂载点 6 个（定义在 `OBJECTS`）；已支持在详情页运行时新增自定义挂载点（`getCustomSkinPoints()` / `addCustomSkinPoint()` + `stageObjects()`），无需改代码，但舞台坐标需合理摆放
 - 规划扩展的挂载点击后显示占位，待对应扩展实现后自动变真实页

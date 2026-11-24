@@ -1,7 +1,8 @@
-# 多端同步协议 v1（设计稿）
+# 多端同步协议 v1
 
-> 配套 `js/sync.js` 骨架 · 2026-11-23
-> 状态：协议已定义，云端适配器待接入。目标场景：手机加 todo → Mac 同步出现。
+> 配套 `js/sync.js` + `js/cloud-*.js` · 2026-11-23 定稿，2026-11-24 更新落地状态
+> 状态：协议已定义，云端适配器（Supabase CloudAdapter）已实现并由 `cloud-sync.js` 注入；无配置时保持离线 no-op。目标场景：手机加 todo → Mac 同步出现。
+> 本文 §4/§5 的 `{...}` 为**协议语义示意**，真实 HTTP 形态见 §8.1（PostgREST RPC）。
 
 ## 1. 原则
 
@@ -22,40 +23,37 @@ meta: {
 }
 ```
 
-> schema v7 起 meta 只含同步四字段。家庭/组织归属字段（`userId`/`ownerId`/`scope`/`householdId`）已随 ADR-005 撤销移除。
+> schema v6 起同步四字段以**独立列为真相源**，`meta` JSON 只保留未提升的扩展字段（读回由 `fromMeta()` 用独立列覆盖恢复）。家庭/组织归属字段（`userId`/`ownerId`/`scope`/`householdId`）已随 ADR-005 撤销移除。详见 [数据库设计说明书 §7](database-design.md#7-通用字段与-meta)。
 
-> 物理存储说明（schema v6）：上表是**内存/协议层**的完整 meta。落库时同步四字段以独立列为真相源（`meta` JSON 剔除已提升字段），读回由 `fromMeta()` 用独立列覆盖恢复。详见 [数据库设计说明书 §7](database-design.md#7-通用字段与-meta)。
-
-时钟：客户端时间可能漂移。v1 用客户端时间戳；服务端接入后应以 `serverTime` 校准（见 §6）。
+时钟：客户端时间可能漂移。当前用 `hlc.js` 单调时间戳（本地取 `max(now, last+1)`，合并时吸收远端时间戳，超前 24h 以上的异常值忽略），不再单纯依赖系统时钟；两端同时刻依次比 `rev`、`deviceId` 收敛。
 
 ## 3. 变更日志（outbox）
 
 - 每次 `commit()` 生成一条：`{seq, domain, op: 'upsert'|'delete', record, at}`
-- 本地 DB `sys_outbox` 表持久化，页重载不丢
-- `push()` 成功后 ack 出队（直接删除队列行；v7 已移除恒为 0 的 `pushed` 列）
+- 本地 DB `sys_outbox` 表持久化，页重载不丢；`restoreOutbox()` 启动时恢复
+- 同一 `(domain, record.id)` 多次修改合并为最新一条（旧 seq 被 ack）；`push()` 成功后 ack 出队（直接删除队列行；v7 已移除恒为 0 的 `pushed` 列）
 - 离线时照常入队，恢复在线统一推送
 
-## 4. 推送协议 push
+## 4. 推送协议 push（语义示意）
 
-```
-POST /sync/push
-Body: { deviceId, changes: [{ domain, op, record }] }
-Resp: { accepted: [seq...], serverTime }
-```
-
-服务端按 LWW 合并，返回已接受变更。客户端据此清理 outbox。幂等：同一 `record.id + rev` 重复推送不产生重复。
-
-## 5. 拉取协议 pull
-
-```
-GET /sync/pull?since=<lastPullAt>&deviceId=<id>
-Resp: { domains: { todos: [...], notes: [...] }, serverTime }
+```text
+push(changes)  # changes: [{ seq, domain, op, record }]
+→ accepted     # 服务端按 LWW 合并后回执
 ```
 
-- 只返回 `updatedAt > since` 的记录（含墓碑）
+服务端按 LWW 合并，返回已接受变更。客户端据此 ack 出队。幂等：同一 `(user_id, domain, record_id)` 由云端唯一键 + LWW 收敛，重复推送不产生重复。真实 HTTP 形态见 §8.1。
+
+## 5. 拉取协议 pull（语义示意）
+
+```text
+pull({ since: lastPullAt })
+→ { domains: { todos: [...], ... }, serverTime }
+```
+
+- 只返回 `updated_at > since` 的记录（含墓碑）
 - 客户端 `mergeDomain(localArr, remoteArr)` 按 LWW 合并
-- 墓碑超过 30 天物理清理
-- 更新 `lastPullAt = serverTime`
+- 墓碑超过 30 天且早于「已成功同步时间点」才物理清理（未启用同步不清理，防复活）
+- 更新 `lastPullAt = serverTime`；真实 HTTP 形态见 §8.1
 
 ## 6. 一次完整同步
 
@@ -82,17 +80,28 @@ syncNow():
 - 鉴权：Supabase Auth 邮箱登录；`auth.uid()` 标识用户，单机未登录时不启用同步
 - 数据可见性：RLS 策略 `user_id = auth.uid()`，数据库层强制隔离（组织架构未定，暂无团队共享）
 - 存储：通用表 `sync_records`（见 `supabase/migrations/0001_sync_schema.sql`），domain 由记录自报
-- LWW 合并：RPC `sync_push` 服务端判定，算法与客户端一致；`serverTime` 用客户端 HLC 毫秒
+- LWW 合并：RPC `sync_push` 服务端判定，算法与客户端一致
 - 墓碑清理：手动调用 `sync_purge_tombstones`，不开放给客户端
 - 端到端加密：待 v3（当前明文传输，依赖 HTTPS + RLS）
 
-## 9. 接入步骤（CloudAdapter 就绪后）
+### 8.1 真实 HTTP 形态（PostgREST RPC，零 SDK）
 
-1. 实现适配器：`{ push(changes), pull({since}) }`
-2. `main.js` 中 `setRemoteAdapter(cloudAdapter)` 注入
-3. `startAutoSync((domain, records) => applyRemote(domain, records))`
-4. 设置页的"同步引擎"状态自动变为"已接入"
-5. 无后端时以上均不调用，应用完全离线可用
+前端 `cloud-adapter.js` 用 `fetch` 直连 Supabase，`apikey` + `Authorization: Bearer <access_token>` 随请求发送：
+
+| 操作 | 请求 | 说明 |
+|---|---|---|
+| push | `POST /rest/v1/rpc/sync_push`，Body `{ p_changes: [...] }` | 批量 upsert，服务端 LWW，返回 `{ accepted, skipped, serverTime }`；`serverTime` 为数据库 `now()` |
+| pull | `POST /rest/v1/rpc/sync_pull`，Body `{ p_since: <HLC 毫秒> }` | 返回 `{ domains, serverTime }`；`serverTime` 为本批最大 `updated_at`（HLC 水位），用于更新 `lastPullAt` |
+
+> 注意区分两个 `serverTime`：`sync_push` 返回的是数据库 `now()`（仅作参考），`sync_pull` 返回的是增量游标水位（用于本地持久化 `lastPullAt`）。二者语义不同。
+
+## 9. 接入方式（已实现）
+
+1. 适配器 `createSupabaseAdapter()` 已实现：`{ push(changes), pull({since}) }`，走 PostgREST RPC
+2. `cloud-sync.js` 的 `refreshCloudSync()` 在有配置且有有效会话时调用 `setRemoteAdapter(adapter)` 并 `startAutoSync((domain, records) => applyRemote(domain, records))`
+3. `main.js` 只调用非阻塞的 `initCloudSync()`（续期会话 / 注入 adapter）
+4. 设置页填 URL 与 anon key 并点「保存配置」后，状态显示「已连接 · 自动同步中」
+5. 无配置或无会话时以上均不生效，应用完全离线可用
 
 ## 10. 风险
 
@@ -137,15 +146,17 @@ syncNow():
 
 同步架构分两个正交维度，均为早期定架构、避免团队化返工：
 
-- **维度 A 归属与可见性（地基）**：云端 `sync_records` 预留 `scope_type`(user/team/org) + `scope_id`；个人期填 `user/<uid>`，团队期填 `team/<id>` + 成员表与可见性 RLS。存量行一条 UPDATE 回填。这是 ADR-005 撤销家庭模型时该保留的通用扩展位。
-- **维度 B 合并策略（按扩展插拔）**：`declareSync(domain, { strategy })` 注册，策略是**域的静态属性**（非用户级运行时检测）。接口 `{ encode, merge, transport }`：
+> ⚠️ 本节为 ADR-008 的**架构设计决策**，尚未落地到代码：`declareSync`、`scope_type`/`scope_id` 归属列、`0002_scope_columns.sql` 迁移目前均不存在（`supabase/migrations/` 仅有 `0001_sync_schema.sql` 与 `test_rls.sql`）；Action Items 仍为待办。当前实际生效的是单一的记录级 LWW（§7、§8）。
+
+- **维度 A 归属与可见性（地基，待落地）**：设计为云端 `sync_records` 预留 `scope_type`(user/team/org) + `scope_id`；个人期填 `user/<uid>`，团队期填 `team/<id>` + 成员表与可见性 RLS。存量行一条 UPDATE 回填。这是 ADR-005 撤销家庭模型时应保留的通用扩展位。
+- **维度 B 合并策略（按扩展插拔，待落地）**：设计 `declareSync(domain, { strategy })` 注册，策略是**域的静态属性**（非用户级运行时检测）。接口 `{ encode, merge, transport }`：
 
 | 策略 | 状态 | 合并依据 | transport |
 |---|---|---|---|
-| `lww-record` | 已实现（默认） | 记录级 `updatedAt/rev/deviceId` | record |
-| `lww-field` | 未来按需 | 字段级时间戳 | record |
-| `crdt` | 未来按需 | Yjs `applyUpdate` | op |
+| `lww-record` | 当前唯一生效（硬编码于 `lwwWinner`/`mergeDomain`，非经 `declareSync` 注册） | 记录级 `updatedAt/rev/deviceId` | record |
+| `lww-field` | 设计，未实现 | 字段级时间戳 | record |
+| `crdt` | 设计，未实现 | Yjs `applyUpdate` | op |
 
-用户从 TODO（lww-record）切到白板（crdt）时，同步引擎按当前写入域自动走对应策略。
+设计目标：将来 `declareSync` 落地后，用户从 TODO（lww-record）切到白板（crdt）时，同步引擎按当前写入域自动走对应策略。当前所有域统一走记录级 LWW。
 
-**关键约束**：CRDT 传增量操作，云端不能用 LWW 判定（会丢并发操作）。CRDT 更新同样装入通用 `sync_records`，用 `op='crdt-op'` + 每次 update 独立 `record_id`，云端只存不判、合并全在客户端——云端表结构不变。CRDT 库（Yjs）到真正需要时再引入（vendor ESM 或 CDN），现在不引入以守住零构建约束。
+**关键约束**：CRDT 传增量操作，云端不能用 LWW 判定（会丢并发操作）。设计上 CRDT 更新同样装入通用 `sync_records`，用 `op='crdt-op'` + 每次 update 独立 `record_id`，云端只存不判、合并全在客户端——云端表结构不变。注意当前 `sync_records.op` 的 CHECK 仅允许 `upsert`/`delete`，落地 `crdt-op` 时需放宽该约束。CRDT 库（Yjs）到真正需要时再引入（vendor ESM 或 CDN），现在不引入以守住零构建约束。

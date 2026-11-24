@@ -337,9 +337,9 @@ insert/update/remove(data.js)
 
 ## 11. 同步设计（现状）
 
-- `sync.js` 为 v1 骨架：无 CloudAdapter 时 `push/pull` 安全 no-op。
+- `sync.js` 管线已实现：无 CloudAdapter 时 `push/pull` 安全 no-op，应用完全离线可用。
 - 已就绪：outbox 落库与恢复、HLC 单调时间戳、LWW 合并、墓碑安全清理、增量游标。
-- 未就绪：云端适配器、真实端到端往返。详见 [sync-protocol.md](sync-protocol.md)。
+- 云端适配器已实现：Supabase CloudAdapter（REST/Auth/RPC 直连）由 `cloud-sync.js` 在会话就绪后注入并启动自动同步；仓库内 mock 单测覆盖请求格式。真实端到端/双端同步为历史人工验证记录，不在仓库自动化测试中。详见 [sync-protocol.md](sync-protocol.md)。
 
 ---
 
@@ -355,7 +355,7 @@ insert/update/remove(data.js)
 
 ## 13. 验证记录（2026-11-24）
 
-`npm test` 41 项全通过，覆盖：
+`npm test` 共 46 个自动化用例（7 个测试文件），覆盖：
 
 - v6 库 → 最新：连续执行 v7+v8；`sys_households`/`sys_memberships`/`sys_ext_mounts`/`sys_ext_kv`/`ext_projects`/`ext_notes_nodes` 全部删除；归属字段剥离；版本收敛到单行 `version=8`；`sys_outbox` 保留未推送条目且无 `pushed` 列
 - v7 库 → v8：分组补齐三同步列并从 meta 回填（含 `rev`/`updatedBy`）、`created_at` 稳定化为组内最早待办创建时间、待办 `completed_at` 用 `updated_at` 近似回填
@@ -370,8 +370,8 @@ insert/update/remove(data.js)
 |---|---|
 | 整域重写写放大 | 多端高频同步前改行级 upsert |
 | 记录级 LWW 丢一端编辑 | 笔记类未来升级字段级 / CRDT |
-| 无 CloudAdapter | 后端就绪后注入，outbox 已可持久化 |
-| 组织架构未定 | 家庭模型已撤销，后续另立通用组织结构设计（用户/组织/可见性重新建模） |
+| 真实端到端验证非自动化 | CloudAdapter 已实现并有 mock 单测；真实 Supabase 往返/双端同步为历史人工验收记录，需重现时手动执行 |
+| 组织架构未定 | 家庭模型已撤销，后续另立通用组织结构设计（用户/组织/可见性重新建模）；scope 归属位与 `declareSync` 目前仅为 ADR-008 设计，未落地 |
 | 扩展表建了却没人用 | v7 已清除空壳；今后扩展数据由扩展自带表，基座不预设 |
 | 历史 `completed_at` 为近似值 | v8 前已完成的待办无法还原真实完成时刻，用 `updated_at` 回填；仅影响迁移数据 |
 | `v2_imported` 等内部标记混在 settings | 暂保留（不影响偏好回灌），后续可独立 `sys_meta` |

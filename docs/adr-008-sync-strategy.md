@@ -1,13 +1,15 @@
 # ADR-008：多端同步技术选型——归属层预留 + 按扩展可插拔合并策略
 
-**状态**：Accepted
+**状态**：Accepted（架构决策已定；实现待落地，见 Action Items）
 **日期**：2026-11-24
 **决策人**：hsf
 **关联**：ADR-005（已撤销家庭模型）· ADR-007（基座裁剪）· [同步协议](sync-protocol.md) · [设计过程](../docs/plans/2026-11-24-sync-strategy-design.md)
 
+> **落地状态**：本文是架构决策，以下维度 A 的 `scope_type`/`scope_id`、维度 B 的 `declareSync` 策略注册表，以及 `0002_scope_columns.sql` 迁移**均未实现**。当前代码只有单一的记录级 LWW（`lwwWinner`/`mergeDomain`），云端 `0001_sync_schema.sql` 只有 `user_id` 列。勿将本文设计当作现状。
+
 ## Context（背景）
 
-WorkHub 当前是个人多设备工作台，同步机制为**记录级 LWW + 中心化 Supabase 判定**，Sprint 8 已完成 8 项端到端冒烟 + 6 项双端验证。未来可能发展为组织/团队工作台，涉及多人协作，但协作形态**尚不确定**：
+WorkHub 当前是个人多设备工作台，同步机制为**记录级 LWW + 中心化 Supabase 判定**（Sprint 8 完成代码落地与 mock 单测；8 项端到端冒烟 + 6 项双端验证为历史人工验收记录，非仓库自动化测试）。未来可能发展为组织/团队工作台，涉及多人协作，但协作形态**尚不确定**：
 
 - 有的扩展（如 TODO）极低频修改，记录级 LWW 足够；
 - 有的扩展（如白板、协同文档）高频多人并发编辑，字符/图元级，丢一端不可接受，需 CRDT/OT。
@@ -54,9 +56,9 @@ declareSync('whiteboard', { strategy: 'crdt', crdt: 'yjs' }); // 高频多人
 
 | 策略 | 状态 | 合并依据 | transport |
 |---|---|---|---|
-| `lww-record` | 已实现（默认） | 记录级 `updatedAt/rev/deviceId` | record |
-| `lww-field` | 未来按需 | 字段级时间戳 | record |
-| `crdt` | 未来按需 | Yjs `applyUpdate` | op |
+| `lww-record` | 算法现有（硬编码，未接入 `declareSync`） | 记录级 `updatedAt/rev/deviceId` | record |
+| `lww-field` | 设计，未实现 | 字段级时间戳 | record |
+| `crdt` | 设计，未实现 | Yjs `applyUpdate` | op |
 
 **关键约束**：可插拔不止换 `merge()`——CRDT 传增量操作，云端不能用 LWW 判定（会丢并发操作）。故 CRDT 更新也装入通用 `sync_records`，用 `op='crdt-op'` + 每次 update 独立 `record_id`（不覆盖），云端退化为"只存不判"，合并全在客户端。云端表结构不变。
 

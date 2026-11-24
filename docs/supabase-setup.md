@@ -1,7 +1,7 @@
 # Supabase 云端同步接入指南
 
-> 面向：WorkHub 本地优先架构的云端后端（schema v7/v8 之后的同步闭环）
-> 状态：项目已建、迁移已应用、8 项端到端冒烟 + 6 项双端同步验证通过；连接信息已预填到设置页，Sprint 8 已完成。唯一遗留：应用内邮箱注册需在控制台关闭 Confirm email（见第 1 节第 5 步）。
+> 面向：WorkHub 本地优先架构的云端后端（schema v8 同步闭环）
+> 状态：项目已建、迁移已应用、CloudAdapter 已实现并由 `cloud-sync.js` 自动注入；URL 与 publishable key 已预填到设置页输入框（仍需点「保存配置」生效），Sprint 8 已完成。8 项端到端冒烟 + 6 项双端同步验证为历史人工验收记录（非仓库自动化测试）。唯一遗留：应用内邮箱注册需在控制台关闭 Confirm email（见第 1 节第 5 步）。
 
 ## 0. 架构概览
 
@@ -70,7 +70,7 @@
 
 ## 7. 运维（可选）
 
-- **墓碑清理**：定期用 service_role 调用 `public.sync_purge_tombstones(p_before)`，`p_before` 传 30 天前的 HLC 毫秒时间戳。函数未授权给 authenticated，客户端无法调用，避免误删未同步墓碑
+- **墓碑清理**：由具备函数执行权限的运维角色（迁移脚本已 `revoke` public/anon/authenticated 的执行权，未显式授予 service_role，实际以 Supabase 控制台的角色权限为准）手动调用 `public.sync_purge_tombstones(p_before)`，`p_before` 传 30 天前的 HLC 毫秒时间戳。客户端无法调用，避免误删未同步墓碑
 - **存储上限**：单记录 `record` 上限 1MB（CHECK 约束）；超出请拆记录或走对象存储
 
 ## 8. 已知限制

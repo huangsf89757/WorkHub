@@ -56,8 +56,8 @@
 | P1 | 变更日志 outbox | 本地写操作入队，供 push 消费 | ✅ 内存队列 + `sys_outbox` 落库与恢复均已就绪 |
 | P1 | LWW 冲突合并 | `lwwWinner` / `mergeDomain` 已实现 | ✅ 已就绪 |
 | P1 | 存储适配器 | `registerAdapter` 抽象，LocalAdapter 已接 | ✅ 已就绪 |
-| P2 | CloudAdapter | Supabase 云端适配器（REST/Auth/RPC 直连，零构建） | ✅ 已落地；Supabase 项目 WorkHub 已建，配置已预填 |
-| P2 | 真实 push/pull | `setRemoteAdapter()` 注入后启用 | ✅ 8 项端到端冒烟 + 6 项双端同步验证全通过（A↔B 拉取/LWW 收敛/跨用户隔离） |
+| P2 | CloudAdapter | Supabase 云端适配器（REST/Auth/RPC 直连，零构建） | ✅ 已实现（设置页预填 URL/key，仍需点「保存配置」生效） |
+| P2 | 真实 push/pull | 有配置与有效会话时由 `cloud-sync.js` 注入 adapter 后启用 | ✅ 代码已实现并有 mock 单测；真实端到端/双端验证为历史人工验收记录（非仓库自动化测试） |
 | P2 | 桌面壳 | Tauri / Electron 打包（macOS + Windows） | ⬜ |
 | P2 | 移动壳 | Capacitor 打包（iOS / iPadOS / Android） | ⬜ |
 | P3 | 同步冲突可视化 | 冲突记录的手动解决 UI | ⬜ |
