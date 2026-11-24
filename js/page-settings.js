@@ -16,7 +16,7 @@ import {
 } from './core.js';
 import { openSkinDetail } from './page-skin-detail.js';
 import { syncSnapshot } from './sync.js';
-import { downloadBackup, readBackupFile, applyBackup, getLastBackupAt } from './backup.js';
+import { downloadBackup, downloadDatabaseFile, readBackupFile, applyBackup, getLastBackupAt } from './backup.js';
 import platform, { PLATFORM_LABEL } from './platform.js';
 
 /* ---------- 版本信息（version.json 异步读取，失败降级） ---------- */
@@ -207,7 +207,15 @@ function dataView() {
             toast(`已导出 ${name}（${countText(counts)}）`);
             bus.emit('route');
           },
-        }, '导出备份文件'))),
+        }, '导出备份文件'),
+        el('button', {
+          class: 'btn',
+          title: '原始 SQLite 文件，可用 DB Browser for SQLite 或 sqlite3 打开；只能在此设备上用，不能用「导入恢复」导入',
+          onclick: () => {
+            const result = downloadDatabaseFile();
+            toast(result ? `已导出 ${result.name}（${Math.round(result.size / 1024)} KB）` : '数据库尚未就绪，无法导出');
+          },
+        }, '导出数据库文件 (.sqlite)'))),
     cardFor('data', '导入恢复',
       el('p', { class: 'hint' }, '合并：与现有数据按最后修改时间合并，不会丢失较新的修改。替换：以备份为准，备份中没有的本地记录会被删除。'),
       el('div', { class: 'btn-line' },

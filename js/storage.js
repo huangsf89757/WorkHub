@@ -66,3 +66,9 @@ export function outboxLoad() {
   try { return adapter?.outboxLoad?.() ?? []; }
   catch (e) { console.warn('[storage] outboxLoad failed', e); return []; }
 }
+
+/** 导出整个数据库的原始字节（SQLite 文件）；适配器不支持或未打开时返回 null */
+export function exportDatabase() {
+  try { return adapter?.exportBytes?.() ?? null; }
+  catch (e) { console.warn('[storage] exportDatabase failed', e); return null; }
+}

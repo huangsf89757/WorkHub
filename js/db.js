@@ -690,6 +690,7 @@ registerAdapter({
   init: initDb,
   persistDomain,
   registerDomain,
+  exportBytes: () => (db ? db.export() : null),
   outboxAppend,
   outboxAck,
   outboxLoad,

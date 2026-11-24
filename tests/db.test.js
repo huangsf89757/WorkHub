@@ -115,3 +115,15 @@ test('扩展表名不合法时拒绝（防止标识符注入）', async () => {
   console.warn = warn;
   assert.ok(warned);
 });
+
+test('导出 SQLite 原始字节：是合法的 SQLite 文件，且能读到已写入的数据', async () => {
+  const keep = data.insert('todos', { title: '导出验证', done: false, priority: 'low', tags: [] });
+  const bytes = storage.exportDatabase();
+  assert.equal(new TextDecoder().decode(bytes.slice(0, 15)), 'SQLite format 3');
+  const SQL = await initSqlJs({ wasmBinary });
+  const copy = new SQL.Database(bytes);
+  const rows = copy.exec(`SELECT title FROM ext_todo_items WHERE id='${keep.id}'`);
+  assert.equal(rows[0].values[0][0], '导出验证');
+  const { databaseFileName } = await import('../js/backup.js');
+  assert.match(databaseFileName(new Date(2026, 10, 23, 9, 5)), /^workhub-db-20261123-0905\.sqlite$/);
+});

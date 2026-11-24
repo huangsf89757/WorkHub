@@ -14,6 +14,7 @@ import { state, commit, newMeta } from './data.js';
 import { mergeDomain, enqueue } from './sync.js';
 import { nextTs } from './hlc.js';
 import { getDeviceId } from './platform.js';
+import { exportDatabase } from './storage.js';
 export const BACKUP_FORMAT = 'workhub-backup';
 export const BACKUP_VERSION = 1;
 /** 随备份保存的界面偏好（只含小体积、与设备无关的配置） */
@@ -160,6 +161,24 @@ export function downloadBackup() {
   setTimeout(() => URL.revokeObjectURL(url), 1000);
   store.set('lastBackupAt', backup.exportedAt);
   return { name: link.download, counts: backup.counts };
+}
+export function databaseFileName(date = new Date()) {
+  return backupFileName(date).replace('workhub-backup-', 'workhub-db-').replace(/\.json$/, '.sqlite');
+}
+/** 下载原始 SQLite 数据库文件（可用 DB Browser for SQLite / sqlite3 打开）。数据库未就绪返回 null。 */
+export function downloadDatabaseFile() {
+  const bytes = exportDatabase();
+  if (!bytes?.length) return null;
+  const blob = new Blob([bytes], { type: 'application/vnd.sqlite3' });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = databaseFileName();
+  document.body.append(link);
+  link.click();
+  link.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  return { name: link.download, size: bytes.length };
 }
 /** 读取用户选择的备份文件并解析；格式问题抛出带中文说明的 Error */
 export async function readBackupFile(file) {
