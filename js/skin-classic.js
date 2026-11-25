@@ -16,8 +16,8 @@ registerSkin({
     { id: 'left',   name: ZONES.left.label,   desc: '主菜单 · 一级入口', role: 'nav' },
     { id: 'top',    name: ZONES.top.label,    desc: '主菜单 · 一级入口', role: 'nav' },
     { id: 'center', name: ZONES.center.label, desc: '主内容区',          role: 'content' },
-    { id: 'right',  name: ZONES.right.label,  desc: '扩展功能菜单',      role: 'panel' },
-    { id: 'bottom', name: ZONES.bottom.label, desc: '扩展功能状态条',    role: 'panel' },
+    { id: 'right',  name: ZONES.right.label,  desc: '扩展入口（详情在中间区）', role: 'entry' },
+    { id: 'bottom', name: ZONES.bottom.label, desc: '扩展入口（详情在中间区）', role: 'entry' },
     // 左侧栏底部常驻入口：像 stage 实物一样走 skinMounts 配置（不再写死扩展中心）
     { id: 'left-bottom', name: '左侧栏底部', desc: '常驻入口 · 可挂载任意扩展', role: 'nav', via: 'skinMount' },
   ],

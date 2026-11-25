@@ -35,11 +35,11 @@
 ├──────────┬───────────────────────┬────────────┤
 │          │                       │            │
 │  left    │      center           │   right    │
-│ 主菜单    │   主内容区             │  功能菜单    │
-│ 一级入口  │   home / detail       │  panel(ctx) │
-│          │                       │            │
+│ 主菜单    │   主内容区             │  扩展入口    │
+│ 一级入口  │   home / detail       │  entry      │
+│          │   统计卡片             │            │
 ├──────────┴───────────────────────┴────────────┤
-│  bottom  功能菜单 · 状态条  status(ctx)          │
+│  bottom  扩展入口 + 系统状态                      │
 └──────────────────────────────────────────────┘
 ```
 
@@ -47,11 +47,11 @@
 |---|---|---|---|
 | `top` | nav | 主菜单一级入口（横向） | placement.zone=top 的扩展 |
 | `left` | nav | 主菜单一级入口（纵向 + 分组） | placement.zone=left 的扩展 |
-| `center` | content | 主内容 | 当前扩展 `home(ctx)` / `detail(id,ctx)` |
-| `right` | panel | 当前扩展的功能菜单 / 属性面板 | 当前扩展 `panel(ctx)` |
-| `bottom` | panel | 当前扩展的功能状态条 | 当前扩展 `status(ctx)`，缺省内核状态 |
+| `center` | content | 唯一的扩展详情承载区 | 当前扩展 `home(ctx)` / `detail(id,ctx)` + 扩展自带统计 |
+| `right` | entry | 扩展入口（可折叠） | `entryExts('right')`：编排/挂载到 right 的已启用扩展 |
+| `bottom` | entry | 扩展入口 + 系统状态 | `entryExts('bottom')` + `setDefaultStatus()` |
 
-**设计意图**：区分"导航入口"（top/left）与"上下文功能"（right/bottom）。后者随当前扩展变化，避免把状态栏和属性面板混为一谈。窄屏（<900px）自动隐藏 right，<760px 时 left 变抽屉。
+**设计意图**：center 独占扩展详情；四边侧栏只挂扩展入口（launcher），不渲染详情内容。窄屏（<900px）自动隐藏 right，<760px 时 left 变抽屉。
 
 ## 3.5 界面样式（Skin）——第二扩展维度
 
@@ -107,7 +107,7 @@
 ### 4.1 core.js（内核）
 
 - `registry`：扩展注册表，按 order 排序
-- `router`：内存路由 `{extId, mode: home|detail, id}`
+- `router`：内存路由 `{extId, mode: home|detail, id}` + hash 映射（见 4.3）
 - `bus`：事件总线（`route` / `data` / `tick` / `sync:*`）
 - `store`：系统偏好（主题、布局、启用开关），key 前缀 `wh_`
 - `el()`：DOM 构建器，杜绝 innerHTML 注入
@@ -116,11 +116,18 @@
 
 | 钩子 | 渲染到 | 说明 |
 |---|---|---|
-| `home(ctx)` | center | 主列表页 |
+| `home(ctx)` | center | 主列表页（统计等详情内容一并在此） |
 | `detail(id, ctx)` | center | 详情页 |
-| `panel(ctx)` | right | 功能/属性面板 |
-| `status(ctx)` | bottom | 状态条文案 |
 | `badge()` | left/top 导航项 | 角标数字 |
+
+> `panel(ctx)` / `status(ctx)` 已废弃：侧栏只挂扩展入口，详情内容统一在 center。`entryExts(zone)` 负责收集挂载到 right/bottom 的入口扩展。
+
+### 4.3 URL 路由与独立窗口
+
+- hash 格式：`#/ext/<id>`（主页）、`#/ext/<id>/detail/<记录id>`（单条详情）、`#/sys/<页id>`、`#/sys/<页id>/<参数>`。
+- `parseRoute(hash)` / `buildRoute(route)` 为纯函数；`router.go/open/home/back` 用 `history.replaceState` 同步 hash（不污染历史）；`boot()` 解析初始 hash 直达，`hashchange` 响应外部 URL 变更。
+- `openExtensionWindow(extId)` 导出给所有扩展：以 `window.open(<url>#/ext/<id>, '_blank')` 打开浏览器独立窗口，各窗口独立运行、共享本地存储；被拦截时 toast 提示。
+- center 的扩展视图（home/detail）统一带"独立窗口打开"工具条按钮。
 
 ### 4.2 data.js（数据层）
 

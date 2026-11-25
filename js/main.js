@@ -5,7 +5,7 @@
  * 新增 UI 皮肤：新建 skin-<id>.js，在此 import（registerSkin 自注册）。
  */
 import { boot, setDefaultStatus, setPlannedFeatures } from './core.js';
-import { state, alive } from './data.js';
+import { state } from './data.js';
 import { initStorage, flush } from './storage.js';
 import './identity.js';           // 本地用户身份（单机默认 me，无家庭/组织）
 import './db.js';                 // 副作用：向 storage 注册 LocalAdapter
@@ -23,10 +23,7 @@ import platform from './platform.js';
 
 setPlannedFeatures(planned);
 
-setDefaultStatus(() => {
-  const pending = alive('todos').filter(t => !t.done).length;
-  return `${pending} 待办 · ${platform.label}`;
-});
+setDefaultStatus(() => platform.label);
 
 /* 存储恢复完成后启动 UI；失败也不阻塞启动（降级为空数据） */
 initStorage(state).finally(async () => {

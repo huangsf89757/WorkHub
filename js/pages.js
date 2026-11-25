@@ -7,7 +7,7 @@ import {
   el, icons, registry, registerSystemPage, router, leaveSystem,
   getPlannedFeatures, placementPicker, extEnabled,
   setExtEnabled, getActiveSkin,
-  getSkinMountPoints, mountLabelOfExt,
+  getSkinMountPoints, mountLabelOfExt, openExtensionWindow,
 } from './core.js';
 import { openExtDetail } from './page-ext-detail.js';
 
@@ -37,6 +37,11 @@ registerSystemPage('ext-center', () => {
         title: '详情', 'aria-label': `查看「${ext.name}」详情`,
         onclick: () => openExtDetail(ext.id),
       }, el('span', { class: 'icon', html: icons.info })),
+      el('button', {
+        class: 'icon-btn ext-row-window',
+        title: '独立窗口打开', 'aria-label': `在独立窗口打开「${ext.name}」`,
+        onclick: () => openExtensionWindow(ext.id),
+      }, el('span', { class: 'icon', html: icons.external })),
       el('button', {
         class: 'tag tag-btn',
         title: '点击修改挂载位置', 'aria-label': `${ext.name} 挂载位置：${mount.label}，点击修改`,

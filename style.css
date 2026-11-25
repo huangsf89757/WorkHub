@@ -298,6 +298,7 @@ h1, h2, h3, .page-title { text-wrap: balance; }
   border-radius: var(--r-sm); color: var(--text-3);
 }
 .bottom-entry:hover, .bottom-entry.active { background: var(--bg-hover); color: var(--accent); }
+.bottom-entry .icon { width: 12px; height: 12px; }
 
 /* 扩展视图统一工具条：独立窗口入口 */
 .ext-view-tools { display: flex; justify-content: flex-end; padding: 10px 32px 0; }

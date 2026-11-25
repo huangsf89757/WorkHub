@@ -212,8 +212,8 @@ export const ZONES = {
   left:   { label: '左侧栏', role: 'nav', collapsible: true },
   top:    { label: '顶部栏', role: 'nav' },
   center: { label: '中间区', role: 'content' },
-  right:  { label: '右侧栏', role: 'panel', collapsible: true },
-  bottom: { label: '底部栏', role: 'panel' },
+  right:  { label: '右侧栏', role: 'entry', collapsible: true },
+  bottom: { label: '底部栏', role: 'entry' },
 };
 export const NAV_ZONES = ['left', 'top'];
 export const PANEL_ZONES = ['right', 'bottom'];
@@ -551,8 +551,55 @@ export function applyTheme(theme) {
 }
 
 /* ============================================================
-   9. 路由（内存态；同步落地后可编码进 URL 便于分享）
+   9. 路由（内存态 + hash 映射，支持新窗口直达与分享）
    ============================================================ */
+/** 解析 hash 为路由对象；空 hash / 非法格式返回 null。系统页 detail 用两段式 `#/sys/<id>/<detailId>`。 */
+export function parseRoute(hash) {
+  const m = /^#\/(ext|sys)\/([^/]+)(?:\/(?:detail\/)?([^/]+))?$/.exec(hash || '');
+  if (!m) return null;
+  const [, kind, rawId, rawDetail] = m;
+  const extId = decodeURIComponent(rawId);
+  if (!extId) return null;
+  if (kind === 'ext' && rawDetail && !hash.includes('/detail/')) return null;
+  if (!rawDetail) return { extId, mode: 'home', id: null };
+  try {
+    return { extId, mode: 'detail', id: decodeURIComponent(rawDetail) };
+  } catch { return null; }
+}
+
+/** 由路由对象生成 hash；无 extId 返回 `#/`。系统页按注册表判定格式。 */
+export function buildRoute({ extId, mode = 'home', id = null } = {}) {
+  if (!extId) return '#/';
+  const kind = hasSystemPage(extId) ? 'sys' : 'ext';
+  const head = `#/${kind}/${encodeURIComponent(extId)}`;
+  if (mode !== 'detail' || !id) return head;
+  const tail = encodeURIComponent(id);
+  return kind === 'sys' ? `${head}/${tail}` : `${head}/detail/${tail}`;
+}
+
+/** 同步当前路由到 URL（不新增历史记录，replaceState 不触发 hashchange）。 */
+function syncHash() {
+  try {
+    const next = buildRoute(router);
+    const current = location.hash || '';
+    if (current !== next) history.replaceState(null, '', `${location.pathname}${location.search}${next}`);
+  } catch { /* 非浏览器环境忽略 */ }
+}
+
+/** 用 hashchange 事件更新内存态并触发重绘；非法路由回落到首个可用入口。 */
+function applyHash() {
+  const route = parseRoute(location.hash);
+  if (!route) return false;
+  const valid = hasSystemPage(route.extId)
+    || (extEnabled(route.extId) && !!registry.get(route.extId));
+  if (!valid) return false;
+  router.extId = route.extId;
+  router.mode = route.mode;
+  router.id = route.id;
+  bus.emit('route');
+  return true;
+}
+
 export const router = {
   extId: null, mode: 'home', id: null,
   go(extId) {
@@ -561,18 +608,29 @@ export const router = {
     this.mode = 'home';
     this.id = null;
     document.body.classList.remove('nav-open');
+    syncHash();
     bus.emit('route');
   },
   open(extId, detailId) {
     this.extId = extId;
     this.mode = 'detail';
     this.id = detailId;
+    syncHash();
     bus.emit('route');
   },
-  home() { this.mode = 'home'; this.id = null; bus.emit('route'); },
+  home() { this.mode = 'home'; this.id = null; syncHash(); bus.emit('route'); },
   /** 回到皮肤主舞台（stage 皮肤专用） */
-  back() { this.extId = null; this.mode = 'home'; this.id = null; bus.emit('route'); },
+  back() { this.extId = null; this.mode = 'home'; this.id = null; syncHash(); bus.emit('route'); },
 };
+
+/** 打开扩展主页的浏览器独立窗口；被拦截时提示。 */
+export function openExtensionWindow(extId) {
+  if (!extId) return;
+  const url = `${location.pathname}${location.search}${buildRoute({ extId, mode: 'home' })}`;
+  const win = window.open(url, '_blank');
+  if (!win) { toast('独立窗口被浏览器拦截，请允许弹窗后重试'); return; }
+  win.opener = null;
+}
 
 /* ============================================================
    10. 壳层渲染（五区）
@@ -705,18 +763,53 @@ function renderCenter() {
     box.append(el('button', { class: 'stage-back', onclick: () => router.back() },
       el('span', { class: 'icon', html: icons.back }), `返回${skin.name}`));
   }
+  // 统一工具条：所有扩展视图（home/detail）都可打开浏览器独立窗口
+  box.append(el('div', { class: 'ext-view-tools' },
+    el('button', {
+      class: 'ext-window-btn',
+      title: '在独立浏览器窗口打开该扩展',
+      'aria-label': `在独立窗口打开「${ext.name}」`,
+      onclick: () => openExtensionWindow(ext.id),
+    }, el('span', { class: 'icon', html: icons.external }), '独立窗口打开')));
   box.append(view);
   box.scrollTop = 0;
 }
 
-/** 当前扩展右侧面板是否展开（不含详情页/无面板内容） */
-export function rightPanelOpen() {
-  if (router.mode === 'detail') return false;
-  const ext = registry.get(router.extId);
-  return !!(ext?.panel && !store.get('rightCollapsed', false));
+/** 返回挂载到某个 entry 区（right/bottom）的已启用扩展，去重。来源：菜单编排 + 皮肤挂载点。 */
+export function entryExts(zone) {
+  const skin = getActiveSkin();
+  const ids = new Set();
+  registry.list.forEach(ext => {
+    if (!extEnabled(ext.id)) return;
+    if (placementOf(ext).zone === zone) ids.add(ext.id);
+  });
+  getSkinMountPoints(skin)
+    .filter(p => p.id === zone)
+    .forEach(p => {
+      const id = resolveMount(skin, p);
+      if (id && extEnabled(id) && registry.get(id)) ids.add(id);
+    });
+  return [...ids].map(id => registry.get(id));
 }
 
-/** 切换当前扩展的右侧功能面板（由扩展页内控件调用，如 TODO 的「N 待完成」标签） */
+/** entry 区入口按钮：只挂载 launcher，点击进 center 显示该扩展详情。 */
+function entryItem(ext) {
+  return el('button', {
+    class: 'entry-item' + (router.extId === ext.id ? ' active' : ''),
+    title: ext.desc || ext.name,
+    onclick: () => router.go(ext.id),
+  },
+    el('span', { class: 'icon', html: ext.icon }),
+    el('span', { class: 'entry-name' }, ext.name),
+    ext.badge?.() ? el('span', { class: 'nav-badge' }, ext.badge()) : null);
+}
+
+/** 当前扩展右侧入口区是否展开（由用户折叠偏好决定） */
+export function rightPanelOpen() {
+  return !store.get('rightCollapsed', false);
+}
+
+/** 切换右侧入口区（由 zoneRightClose 调用） */
 export function toggleRightPanel() {
   store.set('rightCollapsed', !store.get('rightCollapsed', false));
   bus.emit('route');
@@ -726,14 +819,12 @@ function renderRight() {
   const panel = $('zoneRight');
   const body = $('zoneRightBody');
   if (!panel || !body) return;
-  const ext = registry.get(router.extId);
-  // 详情页聚焦内容：不显示功能面板
-  const node = router.mode === 'detail'
-    ? null
-    : ext?.panel?.({ ext: router.extId, mode: router.mode, id: router.id });
-  const collapsed = store.get('rightCollapsed', false);
-  panel.hidden = !node || collapsed;
-  if (node) { body.innerHTML = ''; body.append(node); }
+  const items = entryExts('right');
+  panel.hidden = !items.length || store.get('rightCollapsed', false);
+  if (items.length) {
+    body.innerHTML = '';
+    items.forEach(ext => body.append(entryItem(ext)));
+  }
 }
 
 let defaultStatus = null;
@@ -750,9 +841,18 @@ const hintOf = combo => {
 function renderBottom() {
   const label = $('zoneBottomLabel');
   if (!label) return;
-  const ext = registry.get(router.extId);
-  label.textContent = ext?.status?.({ ext: router.extId, mode: router.mode, id: router.id })
-    ?? defaultStatus?.() ?? '';
+  // 底栏只显示系统级状态；扩展详情（含统计）统一在 center
+  label.textContent = defaultStatus?.() ?? '';
+  const bar = $('zoneBottom');
+  bar?.querySelectorAll('.bottom-entry').forEach(n => n.remove());
+  entryExts('bottom').forEach(ext => {
+    const btn = el('button', {
+      class: 'bottom-entry' + (router.extId === ext.id ? ' active' : ''),
+      title: `打开「${ext.name}」`,
+      onclick: () => router.go(ext.id),
+    }, el('span', { class: 'icon', html: ext.icon }), ext.name);
+    label.before(btn);
+  });
   const sc = getShortcuts();
   const hints = { hintSwitchExt: sc.switchExt, hintBack: sc.back, hintSettings: sc.settings };
   for (const [id, combo] of Object.entries(hints)) {
@@ -973,6 +1073,7 @@ export function boot() {
 
   bus.on('route', renderAll);
   bus.on('data', onData);
+  window.addEventListener('hashchange', applyHash);
 
   document.addEventListener('keydown', event => {
     const typing = /^(INPUT|TEXTAREA)$/.test(document.activeElement?.tagName || '');
@@ -1004,6 +1105,8 @@ export function boot() {
   });
 
   const skin = getActiveSkin();
+  // 优先按 URL 直达；stage 皮肤下 hash 无效时才回舞台
+  if (applyHash()) return;
   if (skin?.renderStage) {
     router.back(); // stage 皮肤：启动即展示主舞台
   } else {

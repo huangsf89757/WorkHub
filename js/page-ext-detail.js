@@ -19,8 +19,6 @@ const HOOKS = [
   ['badge',  'badge()',  '导航角标',    'left / top 导航项显示计数'],
   ['home',   'home(ctx)', '主视图',     'center 区主内容'],
   ['detail', 'detail(id,ctx)', '详情视图', 'center 区单条记录编辑'],
-  ['panel',  'panel(ctx)', '功能面板',   'right 区统计与属性'],
-  ['status', 'status(ctx)', '状态条',    'bottom 区实时状态'],
 ];
 
 /* ---------- 统一元数据：三类扩展归一为同一结构 ---------- */
