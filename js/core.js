@@ -373,7 +373,7 @@ export function openPopMenu(anchor, items) {
       class: 'pop-menu-item' + (item.active ? ' active' : '') + (item.danger ? ' danger' : ''),
       role: 'menuitem',
       onclick: () => { close(); item.onClick?.(); },
-    }, item.label);
+    }, item.node || item.label);
     buttons.push(btn);
     menu.append(btn);
   });

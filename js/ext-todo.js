@@ -5,7 +5,7 @@
  * 保留分组卡片风格；新建下拉同时提供新建任务与新建分组。
  */
 import {
-  el, registry, icons, router, pageHeader, openModal, input, toast, bus, field, refreshAllData,
+  el, registry, icons, router, pageHeader, openModal, input, toast, bus, field, refreshAllData, openPopMenu,
 } from './core.js';
 import {
   state, declareDomain, insert, update, remove, alive, byId,
@@ -325,6 +325,37 @@ function tagEditor(initial = [], onChange) {
   return wrap;
 }
 
+/** 优先级色点 + 文字的行内容，供下拉按钮与菜单项复用。 */
+function priorityRow(key, label) {
+  return el('span', { class: 'prio-choice' },
+    el('span', { class: `prio-dot ${key}` }), label);
+}
+
+/** 带优先级色点的自定义下拉（原生 select 的 option 无法着色）。
+ * 返回按钮节点，附带 value 属性与 onChange 回调，接口对齐原生 select 用法。 */
+function prioritySelect(initial, onChange) {
+  let current = initial || 'medium';
+  const btn = el('button', { type: 'button', class: 'input select prio-select' });
+  const paint = () => {
+    btn.innerHTML = '';
+    btn.append(priorityRow(current, PRIO_LABEL[current]), el('span', { class: 'prio-caret' }));
+  };
+  paint();
+  btn.addEventListener('click', () => openPopMenu(btn,
+    Object.entries(PRIO_LABEL).map(([key, label]) => ({
+      label,
+      active: key === current,
+      node: priorityRow(key, label),
+      onClick: () => {
+        current = key;
+        paint();
+        onChange?.(key);
+      },
+    }))));
+  Object.defineProperty(btn, 'value', { get: () => current, set: v => { current = v; paint(); } });
+  return btn;
+}
+
 /**
  * 任务表单字段：新建与详情共用同一套命名、顺序与栅格，保证两个界面一致。
  * 顺序：标题 → 开始时间 / 截止日期 → 分组 / 优先级 → 标签 → 备注
@@ -352,9 +383,7 @@ function askNewTask() {
   const group = el('select', { class: 'input select' },
     ...groups.map(g => el('option', { value: g.id }, g.name)));
   group.disabled = groups.length === 0; // 无分组时由 addTodo 自动建"默认"组
-  const priority = el('select', { class: 'input select' },
-    ...Object.entries(PRIO_LABEL).map(([key, label]) => el('option', { value: key }, label)));
-  priority.value = 'medium';
+  const priority = prioritySelect('medium');
   const start = el('input', { type: 'date', class: 'input' });
   const due = el('input', { type: 'date', class: 'input' });
   const tags = tagEditor();
@@ -698,13 +727,7 @@ registry.add({
       if (byId('todos', id)?.note !== note.value) saveNote();
     });
 
-    const priority = el('select', { class: 'input select' },
-      Object.entries(PRIO_LABEL).map(([key, label]) => {
-        const option = el('option', { value: key }, label);
-        if (todo.priority === key) option.selected = true;
-        return option;
-      }));
-    priority.addEventListener('change', () => update('todos', id, { priority: priority.value }));
+    const priority = prioritySelect(todo.priority, key => update('todos', id, { priority: key }));
 
     const dateInput = (value, onChange) => {
       const node = el('input', {

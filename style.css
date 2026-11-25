@@ -275,6 +275,17 @@ h1, h2, h3, .page-title { text-wrap: balance; }
   background-size: 5px 5px, 5px 5px;
   background-repeat: no-repeat;
 }
+/* 优先级自定义下拉：复用 .input.select 外框，去掉原生箭头改用手写三角 */
+.input.select.prio-select {
+  display: flex; align-items: center; justify-content: space-between;
+  background-image: none; padding-right: 12px; text-align: left; cursor: pointer;
+}
+.input.select.prio-select:hover { border-color: var(--line-strong); }
+.prio-choice { display: inline-flex; align-items: center; gap: 7px; }
+.prio-caret {
+  width: 0; height: 0; border-left: 4px solid transparent; border-right: 4px solid transparent;
+  border-top: 5px solid var(--text-3); flex: none;
+}
 .textarea { min-height: 120px; resize: vertical; line-height: 1.6; }
 .prop-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0 14px; }
 
