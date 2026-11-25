@@ -716,7 +716,12 @@ body[data-page="system"] .top-system { display: flex; }
   padding: 0 12px 4px 32px; margin: 0 0 2px 0;
   border-bottom: 1px solid var(--line);
 }
-.todo-head-label { font-size: 11px; color: var(--text-3); }
+.todo-head-label {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-size: 11px; color: var(--text-3);
+}
+.todo-head-label .icon { width: 13px; height: 13px; }
+@media (max-width: 759px) { .todo-head-text { display: none; } }
 /* 分组标题行：手柄与任务手柄同起点（gap 2px），内容起点对齐任务框内边距 */
 .todo-group-head-row { gap: 2px; padding: 0; }
 .todo-group-head-row .todo-group-head { padding-left: 12px; }

@@ -101,9 +101,9 @@ const PRIO_LABEL = { high: '高', medium: '中', low: '低' };
 const SORT_LABEL = { default: '默认', due: '截止日', created: '创建时间', priority: '优先级' };
 const GROUP_LABEL = { group: '自定义分组', priority: '优先级', due: '截止日', none: '不分组' };
 const COLS = [
-  { id: 'start',   label: '开始时间' },
-  { id: 'due',     label: '截止时间' },
-  { id: 'created', label: '创建时间' },
+  { id: 'start',   label: '开始时间', icon: 'calendar' },
+  { id: 'due',     label: '截止时间', icon: 'clock' },
+  { id: 'created', label: '创建时间', icon: 'calendar' },
 ];
 
 const isToday = ts => {
@@ -498,12 +498,19 @@ function todoRow(todo) {
 }
 
 /** 列标题行：与任务行共用 grid 模板，严格对齐；仅自定义分组视图显示 */
+/** 列头标签：图标常驻，文字窄屏隐藏（沿用 visibleCols 的列显隐逻辑）。 */
+function headLabel(icon, text) {
+  return el('span', { class: 'todo-head-label' },
+    el('span', { class: 'icon', html: icons[icon] }),
+    el('span', { class: 'todo-head-text' }, text));
+}
+
 function headerRow() {
   return el('div', { class: 'todo-header-row', style: gridStyle(), 'aria-hidden': 'true' },
     el('span'),                                   // 复选框列
     el('span'),                                   // 优先级列
-    el('span', { class: 'todo-head-label' }, '标题'),
-    ...visibleCols().map(c => el('span', { class: 'todo-head-label' }, c.label)),
+    headLabel('file', '标题'),
+    ...visibleCols().map(c => headLabel(c.icon, c.label)),
     el('span'));                                  // 删除列
 }
 
