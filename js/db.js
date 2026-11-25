@@ -692,6 +692,27 @@ export async function initDb(state) {
   return state;
 }
 
+/** 从 IndexedDB 重新载入最新 SQLite 快照并回读所有领域到 state（手动刷新用）。
+ * 先 flush 当前窗口未落盘变更，避免回读覆盖本窗口数据；失败不抛出，由调用方 toast。 */
+export async function reloadFromDb(state) {
+  if (!db) return false;
+  await flush(); // 本窗口尚未落盘的写入先保存，防止被其它窗口快照覆盖
+  const saved = await loadIdb();
+  if (!saved) return false;
+  const SQL = await window.initSqlJs({ locateFile: file => `vendor/sqljs/${file}` });
+  db = new SQL.Database(saved);
+  for (const key of Object.keys(M)) {
+    const mapping = M[key];
+    if (!mapping.load) continue;
+    const main = all(mapping.load);
+    const child = mapping.loadChild ? all(mapping.loadChild) : null;
+    state[key] = mapping.fromRows(main, child);
+    store.set(key, state[key]); // 同步 localStorage 镜像，保持一致
+  }
+  bus.emit('data', { key: '*', op: 'reload' });
+  return true;
+}
+
 /** 诊断快照 */
 export function dbInfo() {
   if (!db) return null;

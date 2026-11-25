@@ -16,6 +16,7 @@
  *   SHORTCUT_ACTIONS, getShortcuts, setShortcut, resetShortcuts,
  *     matchShortcut, comboFromEvent, formatShortcut, isModifierKey
  *   rightPanelOpen, toggleRightPanel, router, openUserPanel, boot, icons
+ *   setRefreshHandler, refreshAllData
  */
 import icons from './icons.js';
 export { icons };
@@ -148,6 +149,22 @@ export function toast(message) {
   box.classList.add('show');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => box.classList.remove('show'), 2000);
+}
+
+/* 手动刷新：由 main.js 注入具体实现，避免内核直接依赖数据层造成循环引用。
+ * 顶栏与扩展视图共用 refreshAllData()，未注入时静默降级。 */
+let refreshHandler = null;
+/** 注入刷新实现（main.js 装配时调用一次）。 */
+export function setRefreshHandler(fn) { refreshHandler = fn; }
+/** 执行完整刷新（云端同步 + 本地回读），结果 toast 提示。 */
+export async function refreshAllData() {
+  if (!refreshHandler) return;
+  try {
+    const r = await refreshHandler();
+    if (r?.message) toast(r.message);
+  } catch (e) {
+    toast(`刷新失败：${e.message}`);
+  }
 }
 
 let modalSeq = 0;
@@ -1076,6 +1093,7 @@ export function boot() {
   applySkinLayout();
 
   $('btnUser')?.addEventListener('click', openUserPanel);
+  $('btnRefresh')?.addEventListener('click', refreshAllData);
   $('zoneRightClose')?.addEventListener('click', () => toggleRightPanel());
   const navToggle = $('navToggle'), backdrop = $('backdrop');
   if (navToggle && backdrop) {

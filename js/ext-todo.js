@@ -5,7 +5,7 @@
  * 保留分组卡片风格；新建下拉同时提供新建任务与新建分组。
  */
 import {
-  el, registry, icons, router, pageHeader, openModal, input, toast, bus, field,
+  el, registry, icons, router, pageHeader, openModal, input, toast, bus, field, refreshAllData,
 } from './core.js';
 import {
   state, declareDomain, insert, update, remove, alive, byId,
@@ -662,7 +662,12 @@ registry.add({
     initSortables(body); // SortableJS：分组排序 + 任务跨组拖动（仅自定义分组视图）
 
     return el('div', { class: 'page todo-page' },
-      pageHeader({ title: '任务' }),
+      pageHeader({ title: '任务', actions: [el('button', {
+        class: 'icon-btn todo-refresh',
+        title: '刷新数据（云端同步 + 本地回读）',
+        'aria-label': '刷新任务数据',
+        onclick: refreshAllData,
+      }, el('span', { class: 'icon', html: icons.refresh }))] }),
       toolbar(),
       tabs,
       groupBy === 'group' ? headerRow() : null,

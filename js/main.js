@@ -4,7 +4,8 @@
  * 新增业务扩展：新建 ext-<id>.js，在此 import（registry.add 自注册）。
  * 新增 UI 皮肤：新建 skin-<id>.js，在此 import（registerSkin 自注册）。
  */
-import { boot, setDefaultStatus, setPlannedFeatures } from './core.js';
+import { boot, setDefaultStatus, setPlannedFeatures, setRefreshHandler } from './core.js';
+import { refreshData } from './data-refresh.js';
 import { state } from './data.js';
 import { initStorage, flush } from './storage.js';
 import './identity.js';           // 本地用户身份（单机默认 me，无家庭/组织）
@@ -24,6 +25,7 @@ import platform from './platform.js';
 setPlannedFeatures(planned);
 
 setDefaultStatus(() => platform.label);
+setRefreshHandler(refreshData);
 
 /* 存储恢复完成后启动 UI；失败也不阻塞启动（降级为空数据） */
 initStorage(state).finally(async () => {
