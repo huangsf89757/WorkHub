@@ -275,6 +275,10 @@ h1, h2, h3, .page-title { text-wrap: balance; }
   background-size: 5px 5px, 5px 5px;
   background-repeat: no-repeat;
 }
+/* 任务标题旁的刷新按钮：紧贴标题，比常规图标按钮略小 */
+.todo-title-row { display: inline-flex; align-items: center; gap: 6px; }
+.todo-refresh { width: 24px; height: 24px; }
+
 /* 优先级自定义下拉：复用 .input.select 外框，去掉原生箭头改用手写三角 */
 .input.select.prio-select {
   display: flex; align-items: center; justify-content: space-between;
@@ -690,15 +694,16 @@ body[data-page="system"] .top-system { display: flex; }
   background: var(--bg-inset); padding: 1px 6px; border-radius: 8px;
 }
 .todo-group-body { padding-top: 5px; }
-/* SortableJS 拖动：手柄在任务框外（左侧），hover 显示；ghost 半透明 */
+/* SortableJS 拖动：手柄悬浮在内容区左侧留白（负 margin 不占内容宽度），hover 显示 */
 .todo-group-drag-handle, .todo-drag-handle {
   display: flex; align-items: center; justify-content: center;
   color: var(--text-3); cursor: grab; opacity: 0; transition: opacity .12s;
   user-select: none; -webkit-user-select: none;
+  flex: none; width: 18px; margin-left: -18px;
 }
-.todo-group-drag-handle { flex: none; width: 18px; height: 24px; }
-.todo-row-wrap { display: flex; align-items: stretch; gap: 2px; }
-.todo-drag-handle { flex: none; width: 18px; min-height: 38px; }
+.todo-group-drag-handle { height: 24px; }
+.todo-row-wrap { display: flex; align-items: stretch; }
+.todo-drag-handle { min-height: 38px; }
 .todo-group-head-row:hover > .todo-group-drag-handle,
 .todo-row-wrap:hover > .todo-drag-handle { opacity: 1; }
 .todo-group-drag-handle:active, .todo-drag-handle:active { cursor: grabbing; }

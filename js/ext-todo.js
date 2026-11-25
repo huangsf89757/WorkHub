@@ -690,13 +690,15 @@ registry.add({
     else body.append(el('div', { class: 'empty big' }, '没有符合条件的待办'));
     initSortables(body); // SortableJS：分组排序 + 任务跨组拖动（仅自定义分组视图）
 
+    const refreshBtn = el('button', {
+      type: 'button', class: 'icon-btn todo-refresh',
+      title: '刷新数据（云端同步 + 本地回读）',
+      'aria-label': '刷新任务数据',
+      onclick: refreshAllData,
+    }, el('span', { class: 'icon', html: icons.refresh }));
+
     return el('div', { class: 'page todo-page' },
-      pageHeader({ title: '任务', actions: [el('button', {
-        class: 'icon-btn todo-refresh',
-        title: '刷新数据（云端同步 + 本地回读）',
-        'aria-label': '刷新任务数据',
-        onclick: refreshAllData,
-      }, el('span', { class: 'icon', html: icons.refresh }))] }),
+      pageHeader({ title: el('span', { class: 'todo-title-row' }, '任务', refreshBtn) }),
       toolbar(),
       tabs,
       groupBy === 'group' ? headerRow() : null,
