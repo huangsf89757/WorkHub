@@ -20,8 +20,9 @@
 <!-- 顶部栏 · 主菜单一级入口 -->
 <header class="zone zone-top" id="zoneTop">
   <div class="top-left">
-    <button id="navToggle" class="icon-btn nav-toggle" title="菜单" aria-label="打开菜单">
-      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
+    <button id="navToggle" class="icon-btn nav-toggle" title="收起菜单" aria-label="收起菜单">
+      <svg class="nav-icon nav-icon-collapse" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M9 3v18"/><path d="m16 9-3 3 3 3"/></svg>
+      <svg class="nav-icon nav-icon-menu" viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M4 6h16M4 12h16M4 18h16"/></svg>
     </button>
     <div class="brand">WorkHub</div>
     <!-- 二级系统页顶栏：返回按钮 + 页面标题（替换 brand） -->
@@ -53,6 +54,11 @@
     <div class="zone-right-body" id="zoneRightBody"></div>
   </aside>
 </div>
+
+<!-- 五区尺寸拖拽手柄：左栏 / 右栏改宽度，底栏改高度 -->
+<div class="zone-resizer zone-resizer-left" id="resizerLeft" role="separator" aria-orientation="vertical" aria-label="调整左侧栏宽度" tabindex="0" title="拖动调整左侧栏宽度"></div>
+<div class="zone-resizer zone-resizer-right" id="resizerRight" role="separator" aria-orientation="vertical" aria-label="调整右侧栏宽度" tabindex="0" title="拖动调整右侧栏宽度"></div>
+<div class="zone-resizer zone-resizer-bottom" id="resizerBottom" role="separator" aria-orientation="horizontal" aria-label="调整底部栏高度" tabindex="0" title="拖动调整底部栏高度"></div>
 
 <!-- 底部栏 · 扩展功能状态条 -->
 <footer class="zone zone-bottom" id="zoneBottom">

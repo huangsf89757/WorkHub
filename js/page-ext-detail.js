@@ -182,50 +182,27 @@ function readmeView(info) {
 }
 
 function previewView(info) {
-  const skin = getActiveSkin();
+  const hasPreview = typeof info.ext?.preview === 'function';
   const box = el('div', { class: 'panel' },
     el('div', { class: 'panel-head' }, el('h3', {}, '预览 · ' + info.name),
-      el('span', { class: 'sd-count' }, '示意，非实际渲染')),
+      el('span', { class: 'sd-count' }, hasPreview ? '可交互 · 模拟数据不落库' : '示意，非实际渲染')),
     el('div', { class: 'sd-pad' }));
   const body = box.lastChild;
 
-  // 五区示意：高亮该扩展挂载区
-  const zoneBox = el('div', { class: 'sd-pv-classic' });
-  const hl = id => info.mounts.includes(id) ? ' hit' : '';
-  zoneBox.append(
-    el('div', { class: 'sd-pv-zone top' + hl('top') }, '顶部栏 · top'),
-    el('div', { class: 'sd-pv-zone left' + hl('left') }, '左侧栏 · left'),
-    el('div', { class: 'sd-pv-center' + hl('center') },
-      el('span', { class: 'icon', html: info.icon || icons.puzzle }),
-      el('span', {}, info.name)),
-    el('div', { class: 'sd-pv-zone right' + hl('right') }, '右侧栏 · right'),
-    el('div', { class: 'sd-pv-zone bottom' + hl('bottom') }, '底部栏 · bottom'));
-  body.append(zoneBox,
-    el('div', { class: 'sd-pv-legend' },
-      el('span', {}, el('i', { class: 'a' }), '当前挂载区'),
-      el('span', {}, el('i', { class: 'b' }), '其它区')),
-    el('p', { class: 'hint' }, `当前界面样式「${skin?.name || '默认'}」· 高亮区表示该扩展的挂载位置`));
-
-  // 能力矩阵
-  const hooks = HOOKS.map(([key, sig, label, zone]) => {
-    const on = info.hooks.includes(key);
-    return el('div', { class: 'ed-hook' + (on ? ' on' : '') },
-      el('span', { class: 'icon', html: on ? icons.check : icons.file }),
-      el('span', { class: 'ed-hook-sig mono' }, sig),
-      el('span', { class: 'ed-hook-zone' }, zone),
-      el('span', { class: 'ed-hook-state' }, on ? '已实现' : '未实现'));
-  });
-  body.append(el('div', { class: 'ed-hook-title' }, '能力矩阵 · 五钩子'),
-    el('div', { class: 'ed-hooks' }, hooks));
-
-  // 已安装可直接打开
-  if (info.kind === 'installed') {
-    body.append(el('div', { class: 'ed-preview-actions' },
-      el('button', {
-        class: 'btn primary',
-        onclick: () => router.go(info.id),
-      }, el('span', { class: 'icon', html: icons.external }), '打开扩展')));
+  if (hasPreview) {
+    let snapshot = null;
+    try {
+      snapshot = info.ext.preview();
+    } catch (err) {
+      console.warn('[ext-detail] 预览渲染失败：' + info.id, err);
+    }
+    if (snapshot?.nodeType) {
+      body.append(snapshot);
+      return box;
+    }
   }
+
+  body.append(el('div', { class: 'empty big' }, '该扩展未提供 UI 预览快照'));
   return box;
 }
 

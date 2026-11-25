@@ -515,6 +515,7 @@ function hydratePrefs(state) {
 const BASE_PREF_KEYS = new Set([
   'theme', 'skin', 'skinMounts', 'skinPoints', 'menuLayout',
   'extEnabled', 'rightCollapsed', 'shortcuts', 'searchRules',
+  'leftW', 'rightW', 'bottomH', 'navCollapsed',
 ]);
 
 /** 声明式登记扩展（新增扩展零改表）；重复调用幂等 */

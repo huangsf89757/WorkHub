@@ -6,6 +6,7 @@
  */
 import {
   el, registry, icons, router, pageHeader, openModal, input, toast, bus, field, refreshAllData, openPopMenu,
+  extHomePage, extToolbar, extToolButton, extTabs,
 } from './core.js';
 import {
   state, declareDomain, insert, update, remove, alive, byId,
@@ -101,9 +102,8 @@ const PRIO_LABEL = { high: '高', medium: '中', low: '低' };
 const SORT_LABEL = { default: '默认', due: '截止日', created: '创建时间', priority: '优先级' };
 const GROUP_LABEL = { group: '自定义分组', priority: '优先级', due: '截止日', none: '不分组' };
 const COLS = [
-  { id: 'start',   label: '开始时间', icon: 'calendar' },
-  { id: 'due',     label: '截止时间', icon: 'clock' },
-  { id: 'created', label: '创建时间', icon: 'calendar' },
+  { id: 'start', label: '开始时间', icon: 'calendar' },
+  { id: 'due',   label: '截止时间', icon: 'clock' },
 ];
 
 const isToday = ts => {
@@ -112,15 +112,11 @@ const isToday = ts => {
   return d.getFullYear() === n.getFullYear() && d.getMonth() === n.getMonth() && d.getDate() === n.getDate();
 };
 const isLate = t => t.due && !t.done && t.due < Date.now() && !isToday(t.due);
-const shortDate = ts => {
-  if (!ts) return '—';
-  const d = new Date(ts);
-  return `${d.getMonth() + 1}/${d.getDate()}`;
-};
-const fullShort = ts => {
+/** 统一日期格式：年/月/日（补零），空值显示占位符。 */
+export const formatDate = ts => {
   if (!ts) return '—';
   const d = new Date(ts), p = n => String(n).padStart(2, '0');
-  return `${d.getMonth() + 1}月${d.getDate()}日 ${p(d.getHours())}:${p(d.getMinutes())}`;
+  return `${d.getFullYear()}/${p(d.getMonth() + 1)}/${p(d.getDate())}`;
 };
 /** 窄屏只保留截止列，避免列溢出 */
 const visibleCols = () => COLS.filter(c => window.innerWidth >= 760 || c.id === 'due');
@@ -364,6 +360,11 @@ function prioritySelect(initial, onChange) {
 const requiredLabel = text =>
   el('span', {}, text, el('span', { class: 'field-req', 'aria-label': '必填' }, ' *'));
 
+/** 新建任务必填校验：标题为空时返回提示文案，通过返回 null。 */
+export function validateNewTask({ title }) {
+  return title?.trim() ? null : '请填写标题';
+}
+
 function todoFields({ title, start, due, priority, group, tags, note }) {
   return [
     field(requiredLabel('标题'), title),
@@ -377,7 +378,7 @@ function todoFields({ title, start, due, priority, group, tags, note }) {
 }
 
 /** 新建任务弹窗：与待办详情使用相同的字段结构与顺序 */
-function askNewTask() {
+export function askNewTask() {
   const title = input({ placeholder: '输入任务标题…', maxlength: 120 });
   const groups = alive('todoGroups');
   const group = el('select', { class: 'input select' },
@@ -393,7 +394,12 @@ function askNewTask() {
     ...todoFields({ title, priority, start, due, group, tags, note })), [
     { label: '取消' },
     { label: '创建', primary: true, onClick: close => {
-      if (!title.value.trim()) return;
+      const error = validateNewTask({ title: title.value });
+      if (error) {
+        toast(error);
+        title.focus();
+        return;
+      }
       addTodo(
         title.value,
         group.value,
@@ -484,11 +490,10 @@ function todoRow(todo) {
       role: 'img', 'aria-label': `优先级：${PRIO_LABEL[todo.priority] || '中'}`,
     }),
     titleCell,
-    dataCell('start', el('span', { class: 'todo-date' }, shortDate(todo.start))),
+    dataCell('start', el('span', { class: 'todo-date' }, formatDate(todo.start))),
     dataCell('due', el('span', {
       class: 'todo-date' + (isLate(todo) ? ' late' : isToday(todo.due) ? ' today' : ''),
-    }, shortDate(todo.due))),
-    dataCell('created', el('span', { class: 'todo-date muted' }, fullShort(todo.created))),
+    }, formatDate(todo.due))),
     el('button', {
       class: 'icon-btn todo-del', title: '删除', 'aria-label': `删除待办「${todo.title}」`,
       onclick: () => askDeleteTodo(todo),
@@ -634,29 +639,266 @@ function sectionNode(sec) {
 
 /** 精简工具栏：新建（下拉任务/分组）+ 排序 + 分组 */
 function toolbar() {
-  return el('div', { class: 'todo-toolbar-fs' },
+  return extToolbar(
     el('button', {
-      class: 'btn todo-new',
+      type: 'button', class: 'btn todo-new',
       onclick: event => openMenu(event.currentTarget, [
         { label: '新建任务', onClick: askNewTask },
         { label: '新建分组', onClick: () => askGroup(() => bus.emit('route')) },
       ]),
     },
       el('span', { class: 'icon', html: icons.plus }), '新建'),
-    el('button', {
-      class: 'todo-tbtn',
-      onclick: event => openMenu(event.currentTarget, Object.entries(SORT_LABEL).map(([key, label]) => ({
-        label: '排序：' + label, active: sortBy === key,
-        onClick: () => { sortBy = key; bus.emit('route'); },
-      }))),
-    }, el('span', { class: 'icon', html: icons.sort }), '排序：' + SORT_LABEL[sortBy]),
-    el('button', {
-      class: 'todo-tbtn',
-      onclick: event => openMenu(event.currentTarget, Object.entries(GROUP_LABEL).map(([key, label]) => ({
-        label: '分组：' + label, active: groupBy === key,
-        onClick: () => { groupBy = key; collapsed.clear(); bus.emit('route'); },
-      }))),
-    }, el('span', { class: 'icon', html: icons.folder }), '分组：' + GROUP_LABEL[groupBy]));
+    extToolButton([
+      el('span', { class: 'icon', html: icons.sort }), '排序：' + SORT_LABEL[sortBy],
+    ], event => openMenu(event.currentTarget, Object.entries(SORT_LABEL).map(([key, label]) => ({
+      label: '排序：' + label, active: sortBy === key,
+      onClick: () => { sortBy = key; bus.emit('route'); },
+    })))),
+    extToolButton([
+      el('span', { class: 'icon', html: icons.folder }), '分组：' + GROUP_LABEL[groupBy],
+    ], event => openMenu(event.currentTarget, Object.entries(GROUP_LABEL).map(([key, label]) => ({
+      label: '分组：' + label, active: groupBy === key,
+      onClick: () => { groupBy = key; collapsed.clear(); bus.emit('route'); },
+    })))));
+}
+
+/* ============================================================
+   UI 预览：自包含交互沙盒
+   数据存于闭包副本，所有增删改只改副本 + 局部重绘，绝不触碰
+   data.js / localStorage / SQLite / outbox / 路由 / 全局视图状态。
+   ============================================================ */
+const PV_GRID = 'grid-template-columns: 22px 10px minmax(0,1fr) 88px 88px 24px';
+const PV_HANDLE = '<svg viewBox="0 0 10 16" width="10" height="16" fill="currentColor"><circle cx="2" cy="3" r="1.2"/><circle cx="8" cy="3" r="1.2"/><circle cx="2" cy="8" r="1.2"/><circle cx="8" cy="8" r="1.2"/><circle cx="2" cy="13" r="1.2"/><circle cx="8" cy="13" r="1.2"/></svg>';
+
+/**
+ * 生成扩展详情「预览」Tab 的可交互 UI 快照。
+ * 副本数据与真实 state 完全隔离，交互（勾选/新建/删除/排序/分组/只读详情）只改副本。
+ * - Returns: 预览根容器（含独立的列表 / 只读详情视图）
+ */
+function buildPreview() {
+  const host = el('div', { class: 'ed-ui-preview' });
+  const now = Date.now(), D = 86400000;
+  const groups = [
+    { id: 'pvg-work', name: '工作', sort: 0 },
+    { id: 'pvg-life', name: '生活', sort: 1 },
+  ];
+  let todos = [
+    { id: 'pvt-1', title: '完成架构评审文档', done: false, priority: 'high', tags: ['设计'], start: now - D, due: now + D, created: now - 2 * D, groupId: 'pvg-work', note: '汇总评审意见并定稿。' },
+    { id: 'pvt-2', title: '整理用户反馈清单', done: false, priority: 'medium', tags: [], start: null, due: now + 3 * D, created: now - D, groupId: 'pvg-work', note: '' },
+    { id: 'pvt-3', title: '预约周末体检', done: false, priority: 'low', tags: ['健康'], start: now + 2 * D, due: now + 4 * D, created: now, groupId: 'pvg-life', note: '' },
+    { id: 'pvt-4', title: '回复上周的邮件', done: true, priority: 'medium', tags: [], start: now - 3 * D, due: now - 2 * D, created: now - 4 * D, groupId: 'pvg-life', note: '' },
+  ];
+  const view = { tab: 'all', sort: 'default', group: 'group', detailId: null };
+  const collapsed = new Set();
+  let pvSort = [];
+
+  const rerender = () => {
+    pvSort.forEach(s => s.destroy?.());
+    pvSort = [];
+    host.replaceChildren(view.detailId ? detailView(view.detailId) : homeView());
+  };
+
+  const filtered = () => {
+    let list = todos;
+    if (view.tab === 'undone') list = list.filter(t => !t.done);
+    else if (view.tab === 'done') list = list.filter(t => t.done);
+    const arr = [...list];
+    if (view.sort === 'due') arr.sort((a, b) => (a.due ?? Infinity) - (b.due ?? Infinity));
+    else if (view.sort === 'created') arr.sort((a, b) => b.created - a.created);
+    else if (view.sort === 'priority') arr.sort((a, b) => (PRIO[a.priority] ?? 1) - (PRIO[b.priority] ?? 1));
+    else arr.sort((a, b) => (a.done - b.done) || (PRIO[a.priority] ?? 1) - (PRIO[b.priority] ?? 1));
+    return arr;
+  };
+
+  const sections = list => {
+    if (view.group === 'group') {
+      return groups.slice().sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0)).map(g => ({
+        id: 'g:' + g.id, name: g.name, groupId: g.id, todos: list.filter(t => t.groupId === g.id),
+      }));
+    }
+    if (view.group === 'priority') {
+      return Object.entries(PRIO_LABEL).map(([key, label]) => ({
+        id: 'p:' + key, name: label + '优先级', todos: list.filter(t => t.priority === key),
+      }));
+    }
+    if (view.group === 'due') {
+      return [
+        { id: 'd:late', name: '已逾期', todos: list.filter(isLate) },
+        { id: 'd:today', name: '今天', todos: list.filter(t => isToday(t.due)) },
+        { id: 'd:future', name: '未来', todos: list.filter(t => t.due && !isToday(t.due) && !isLate(t)) },
+        { id: 'd:none', name: '无截止日', todos: list.filter(t => !t.due) },
+      ];
+    }
+    return [{ id: 'all', name: '全部任务', todos: list }];
+  };
+
+  const cell = (id, content) => el('span', { class: `todo-cell cell-${id}` }, content);
+
+  const row = t => el('div', { class: 'todo-row-wrap', 'data-todo-id': t.id },
+    el('span', { class: 'todo-drag-handle', html: PV_HANDLE }),
+    el('div', { class: 'todo-row' + (t.done ? ' done' : ''), style: PV_GRID },
+      el('input', { type: 'checkbox', class: 'todo-cb', checked: !!t.done,
+        onchange: e => { t.done = e.target.checked; rerender(); } }),
+      el('span', { class: `prio-dot ${t.priority}`, role: 'img', 'aria-label': `优先级：${PRIO_LABEL[t.priority] || '中'}` }),
+      el('div', { class: 'todo-title-wrap' },
+        el('button', { type: 'button', class: 'todo-title', onclick: () => { view.detailId = t.id; rerender(); } }, t.title),
+        (t.tags || []).length
+          ? el('span', { class: 'todo-tags' }, t.tags.slice(0, 3).map(tag => el('span', { class: 'todo-tag' }, tag)))
+          : null),
+      cell('start', el('span', { class: 'todo-date' }, formatDate(t.start))),
+      cell('due', el('span', { class: 'todo-date' + (isLate(t) ? ' late' : isToday(t.due) ? ' today' : '') }, formatDate(t.due))),
+      el('button', { type: 'button', class: 'icon-btn todo-del', 'aria-label': `删除待办「${t.title}」`,
+        onclick: () => confirmDialog({
+          title: '删除待办', message: `确定删除「${t.title}」？（仅预览，不影响真实数据）`,
+          onConfirm: () => { todos = todos.filter(x => x.id !== t.id); rerender(); },
+        }),
+      }, el('span', { class: 'icon', html: icons.trash }))));
+
+  const section = sec => {
+    const isCollapsed = collapsed.has(sec.id);
+    const head = el('button', { class: 'todo-group-head', onclick: () => {
+      if (isCollapsed) collapsed.delete(sec.id); else collapsed.add(sec.id);
+      rerender();
+    } },
+      el('span', { class: 'icon chev' + (isCollapsed ? '' : ' open'), html: icons.chevronDown }),
+      el('span', {}, sec.name),
+      el('span', { class: 'todo-group-count' }, String(sec.todos.length)));
+    const headRow = el('div', { class: 'todo-group-head-row' }, head);
+    const body = el('div', { class: 'todo-group-body', 'data-group-id': sec.groupId || '' });
+    if (!isCollapsed) sec.todos.forEach(t => body.append(row(t)));
+    return el('div', { class: 'todo-group', 'data-group-id': sec.groupId || '' }, headRow, body);
+  };
+
+  const menuBtn = (label, icon, items) => el('button', { type: 'button', class: 'todo-tbtn',
+    onclick: e => openMenu(e.currentTarget, items),
+  }, el('span', { class: 'icon', html: icons[icon] }), label);
+
+  const toolbar = () => el('div', { class: 'todo-toolbar-fs' },
+    el('button', { type: 'button', class: 'btn todo-new',
+      onclick: e => openMenu(e.currentTarget, [
+        { label: '新建任务', onClick: previewNewTodo },
+        { label: '新建分组', onClick: previewNewGroup },
+      ]),
+    }, el('span', { class: 'icon', html: icons.plus }), '新建'),
+    menuBtn('排序：' + SORT_LABEL[view.sort], 'sort', Object.entries(SORT_LABEL).map(([key, label]) => ({
+      label: '排序：' + label, active: view.sort === key,
+      onClick: () => { view.sort = key; rerender(); },
+    }))),
+    menuBtn('分组：' + GROUP_LABEL[view.group], 'folder', Object.entries(GROUP_LABEL).map(([key, label]) => ({
+      label: '分组：' + label, active: view.group === key,
+      onClick: () => { view.group = key; collapsed.clear(); rerender(); },
+    }))));
+
+  function previewNewTodo() {
+    const title = input({ placeholder: '输入任务标题…', maxlength: 120 });
+    const group = el('select', { class: 'input select' }, ...groups.map(g => el('option', { value: g.id }, g.name)));
+    const priority = prioritySelect('medium');
+    const start = el('input', { type: 'date', class: 'input' });
+    const due = el('input', { type: 'date', class: 'input' });
+    const tags = tagEditor();
+    const note = el('textarea', { class: 'input textarea', placeholder: '备注…' });
+    openModal('新建任务（仅预览）', el('div', { class: 'todo-form-card' },
+      ...todoFields({ title, start, due, group, tags, note, priority })), [
+      { label: '取消' },
+      { label: '创建', primary: true, onClick: close => {
+        if (!title.value.trim()) return;
+        todos.unshift({
+          id: 'pvt-' + Date.now(), title: title.value.trim(), done: false,
+          priority: priority.value, groupId: group.value, tags: tags.getTags(),
+          start: start.value ? new Date(start.value).getTime() : null,
+          due: due.value ? new Date(due.value).getTime() : null,
+          created: Date.now(), note: note.value,
+        });
+        close(); rerender();
+      } },
+    ]);
+  }
+
+  function previewNewGroup() {
+    const name = input({ placeholder: '输入分组名称…', maxlength: 40 });
+    openModal('新建分组（仅预览）', field(requiredLabel('名称'), name), [
+      { label: '取消' },
+      { label: '创建', primary: true, onClick: close => {
+        if (!name.value.trim()) return;
+        groups.push({ id: 'pvg-' + Date.now(), name: name.value.trim(), sort: groups.length });
+        close(); rerender();
+      } },
+    ]);
+  }
+
+  function homeView() {
+    const list = sections(filtered());
+    const body = el('div', { class: 'todo-body' });
+    if (list.length) list.forEach(sec => body.append(section(sec)));
+    else body.append(el('div', { class: 'empty big' }, '没有符合条件的待办'));
+
+    const page = el('div', { class: 'page ext-page todo-page' },
+      pageHeader({ title: el('span', { class: 'todo-title-row' }, '任务',
+        el('button', { type: 'button', class: 'icon-btn todo-refresh', title: '刷新（仅预览）', 'aria-label': '刷新任务数据',
+          onclick: () => toast('预览模式：数据为模拟，刷新无效果') },
+          el('span', { class: 'icon', html: icons.refresh }))) }),
+      toolbar(),
+      el('div', { class: 'todo-tabs', role: 'tablist', 'aria-label': '待办筛选' },
+        ...[['all', '全部'], ['undone', '未完成'], ['done', '已完成']].map(([key, label]) =>
+          el('button', { type: 'button', class: 'todo-tab' + (view.tab === key ? ' active' : ''),
+            role: 'tab', 'aria-selected': String(view.tab === key),
+            onclick: () => { view.tab = key; rerender(); } }, label))),
+      view.group === 'group' ? el('div', { class: 'todo-header-row', style: PV_GRID, 'aria-hidden': 'true' },
+        el('span'), el('span'), headLabel('file', '标题'),
+        headLabel('calendar', '开始时间'), headLabel('clock', '截止时间'), el('span')) : null,
+      body);
+
+    if (window.Sortable) {
+      pvSort.push(window.Sortable.create(body, {
+        handle: '.todo-group-head', animation: 150, ghostClass: 'sortable-ghost',
+        onEnd: () => {
+          [...body.querySelectorAll('.todo-group[data-group-id]')].forEach((node, i) => {
+            const g = groups.find(x => x.id === node.dataset.groupId);
+            if (g) g.sort = i;
+          });
+        },
+      }));
+      body.querySelectorAll('.todo-group-body').forEach(listNode =>
+        pvSort.push(window.Sortable.create(listNode, {
+          group: 'workhub-preview', handle: '.todo-drag-handle', animation: 150,
+          ghostClass: 'sortable-ghost', draggable: '.todo-row-wrap',
+          onEnd: e => {
+            const t = todos.find(x => x.id === e.item?.dataset?.todoId);
+            if (t && e.to?.dataset?.groupId !== undefined) t.groupId = e.to.dataset.groupId;
+          },
+        })));
+    }
+    return page;
+  }
+
+  function detailView(id) {
+    const t = todos.find(x => x.id === id);
+    if (!t) { view.detailId = null; return homeView(); }
+    const title = input({ value: t.title, class: 'input', maxlength: 120, disabled: true });
+    const start = el('input', { type: 'date', class: 'input', disabled: true,
+      value: t.start ? new Date(t.start).toISOString().slice(0, 10) : '' });
+    const due = el('input', { type: 'date', class: 'input', disabled: true,
+      value: t.due ? new Date(t.due).toISOString().slice(0, 10) : '' });
+    const group = el('select', { class: 'input select', disabled: true },
+      ...groups.map(g => { const o = el('option', { value: g.id }, g.name); if (g.id === t.groupId) o.selected = true; return o; }));
+    const priority = el('button', { type: 'button', class: 'input select', disabled: true }, PRIO_LABEL[t.priority] || '中');
+    const tags = (t.tags || []).length
+      ? el('div', { class: 'tag-chips' }, t.tags.map(x => el('span', { class: 'todo-tag' }, x)))
+      : el('span', { class: 'hint' }, '无标签');
+    const note = el('textarea', { class: 'input textarea', disabled: true }, t.note || '');
+    const doneCb = el('input', { type: 'checkbox', disabled: true, checked: !!t.done });
+
+    return el('div', { class: 'page narrow' },
+      pageHeader({ title: '待办详情', back: true,
+        backAction: () => { view.detailId = null; rerender(); },
+        actions: [el('span', { class: 'pill' }, '只读预览')] }),
+      el('div', { class: 'todo-form-card' },
+        el('div', { class: 'todo-detail-state' }, doneCb, el('label', {}, t.done ? '已完成' : '未完成')),
+        ...todoFields({ title, priority, start, due, group, tags, note })));
+  }
+
+  rerender();
+  return host;
 }
 
 /* ============================================================
@@ -674,6 +916,7 @@ registry.add({
   readme: TODO_README,
   docFile: 'docs/extensions/todo.md',
   links: [{ label: '完整文档', href: 'docs/extensions/todo.md' }],
+  preview: buildPreview,
 
   badge() {
     return alive('todos').filter(t => !t.done).length || null;
@@ -683,13 +926,11 @@ registry.add({
     view = view === 'detail' ? 'all' : view;
     const todos = filtered();
 
-    const tabs = el('div', { class: 'todo-tabs', role: 'tablist', 'aria-label': '待办筛选' },
-      ...[['all', '全部'], ['undone', '未完成'], ['done', '已完成']].map(([key, label]) =>
-        el('button', {
-          class: 'todo-tab' + (view === key ? ' active' : ''),
-          role: 'tab', 'aria-selected': String(view === key),
-          onclick: () => { view = key; bus.emit('route'); },
-        }, label)));
+    const tabs = extTabs(
+      [['all', '全部'], ['undone', '未完成'], ['done', '已完成']],
+      view,
+      key => { view = key; bus.emit('route'); },
+      '待办筛选');
 
     const body = el('div', { class: 'todo-body' });
     const list = sections(todos);
@@ -704,12 +945,17 @@ registry.add({
       onclick: refreshAllData,
     }, el('span', { class: 'icon', html: icons.refresh }));
 
-    return el('div', { class: 'page todo-page' },
-      pageHeader({ title: el('span', { class: 'todo-title-row' }, '任务', refreshBtn) }),
-      toolbar(),
+    const page = extHomePage({
+      title: el('span', { class: 'todo-title-row' }, '任务', refreshBtn),
+      toolbar: toolbar(),
       tabs,
-      groupBy === 'group' ? headerRow() : null,
-      body);
+      body: [
+        groupBy === 'group' ? headerRow() : null,
+        body,
+      ],
+    });
+    page.classList.add('todo-page');
+    return page;
   },
 
   detail(id) {

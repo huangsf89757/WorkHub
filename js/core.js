@@ -215,6 +215,44 @@ export function pageHeader({ title, back = false, backLabel = '返回', backActi
     el('div', { class: 'header-actions' }, ...actions));
 }
 
+/* ============================================================
+   扩展页面通用模板（所有扩展的 1 级主页统一套用）
+   ============================================================ */
+
+/**
+ * 扩展 1 级主页外壳：页头 + 工具栏 + 选项卡 + 内容体。
+ * 保留 .page-header .header-actions，供核心层注入「独立窗口打开」按钮。
+ */
+export function extHomePage({ title, actions = [], toolbar = null, tabs = null, body }) {
+  return el('div', { class: 'page ext-page' },
+    pageHeader({ title, actions }),
+    toolbar, tabs, ...[body].flat(Infinity));
+}
+
+/** 通用工具栏容器：左对齐、可换行的一组操作按钮。 */
+export function extToolbar(...items) {
+  return el('div', { class: 'ext-toolbar' }, ...items);
+}
+
+/** 工具栏次级按钮：排序、分组等非主操作。 */
+export function extToolButton(content, onclick, { active = false } = {}) {
+  return el('button', {
+    type: 'button', class: 'ext-tbtn' + (active ? ' active' : ''), onclick,
+  }, content);
+}
+
+/** 通用选项卡条：items 为 [key, label] 数组，切换时回调 onChange(key)。 */
+export function extTabs(items, active, onChange, label = '视图筛选') {
+  return el('div', { class: 'ext-tabs', role: 'tablist', 'aria-label': label },
+    ...items.map(([key, text]) =>
+      el('button', {
+        type: 'button',
+        class: 'ext-tab' + (key === active ? ' active' : ''),
+        role: 'tab', 'aria-selected': String(key === active),
+        onclick: () => onChange(key),
+      }, text)));
+}
+
 export const fmtTime = ts => {
   if (!ts) return '—';
   const d = new Date(ts);
@@ -617,6 +655,20 @@ function applyHash() {
   return true;
 }
 
+/** 同步菜单按钮文案，准确反映当前左栏是展开还是收起。 */
+function syncNavToggleLabel() {
+  const btn = document?.getElementById?.('navToggle');
+  const body = document?.body;
+  if (!btn || !body) return;
+  const narrow = window.matchMedia?.('(max-width: 760px)').matches ?? window.innerWidth <= 760;
+  const collapsed = narrow
+    ? !body.classList.contains('nav-open')
+    : body.classList.contains('nav-collapsed');
+  const label = collapsed ? '展开菜单' : '收起菜单';
+  btn.title = label;
+  btn.setAttribute('aria-label', label);
+}
+
 export const router = {
   extId: null, mode: 'home', id: null,
   go(extId) {
@@ -625,6 +677,7 @@ export const router = {
     this.mode = 'home';
     this.id = null;
     document.body.classList.remove('nav-open');
+    syncNavToggleLabel();
     syncHash();
     bus.emit('route');
   },
@@ -694,6 +747,7 @@ function renderLeft() {
     if (!items.length && !group.persist) continue;
     box.append(el('button', {
       class: 'nav-group-head',
+      title: `${group.name}（${items.length}）· 点击折叠或展开`,
       onclick: () => updateGroup(group.id, { collapsed: !group.collapsed }),
     },
       el('span', { class: 'icon chev' + (group.collapsed ? '' : ' open'), html: icons.chevronDown }),
@@ -786,9 +840,9 @@ function renderCenter() {
     box.append(el('button', { class: 'stage-back', onclick: () => router.back() },
       el('span', { class: 'icon', html: icons.back }), `返回${skin.name}`));
   }
-  // 统一工具条：非独立窗口时提供"独立窗口打开"入口。
-  // 独立窗口内自身已是目标视图，不再重复注入该按钮。
-  if (!isFocusMode()) {
+  // 扩展 1 级页面（home）才提供"独立窗口打开"入口；2 级详情页不注入。
+  // 独立窗口内自身已是目标视图，也不重复注入。
+  if (!isFocusMode() && router.mode === 'home') {
     const windowBtn = el('button', {
       class: 'ext-window-btn',
       title: '在独立浏览器窗口打开该扩展',
@@ -849,6 +903,7 @@ function renderRight() {
   if (!panel || !body) return;
   const items = entryExts('right');
   panel.hidden = !items.length || store.get('rightCollapsed', false);
+  document.body.classList.toggle('right-hidden', panel.hidden);
   if (items.length) {
     body.innerHTML = '';
     items.forEach(ext => body.append(entryItem(ext)));
@@ -1078,10 +1133,171 @@ export function openUserPanel() {
 }
 
 /* ============================================================
+   10b. 五区尺寸拖拽（左 / 右改宽度，下改高度）
+   ------------------------------------------------------------
+   尺寸写入根元素的 --user-* 变量，由 CSS 在桌面端映射到 --left-w /
+   --right-w / --bottom-h；窄屏保持抽屉式布局，不受覆盖值影响。
+   ============================================================ */
+const ZONE_RESIZERS = [
+  { id: 'resizerLeft', key: 'leftW', prop: '--user-left-w', def: 208, min: 1, max: 420, axis: 'x', sign: 1, states: true },
+  { id: 'resizerRight', key: 'rightW', prop: '--user-right-w', def: 268, min: 180, max: 520, axis: 'x', sign: -1 },
+  { id: 'resizerBottom', key: 'bottomH', prop: '--user-bottom-h', def: 26, min: 20, max: 200, axis: 'y', sign: -1, viewportRatio: .45 },
+];
+/* 左栏只有四个合法状态：前三态宽度固定，info 态宽度自由（>= INFO_MIN_W） */
+const LEFT_STATES = [
+  { mode: 'close', width: 0 },
+  { mode: 'icon', width: 56 },
+  { mode: 'title', width: 176 },
+];
+const INFO_MIN_W = 208;
+const isNarrowScreen = () => window.matchMedia?.('(max-width: 760px)').matches ?? window.innerWidth <= 760;
+const zoneMax = cfg => cfg.viewportRatio
+  ? Math.min(cfg.max, Math.round(window.innerHeight * cfg.viewportRatio))
+  : cfg.max;
+const clampZone = (cfg, value) => Math.min(Math.max(Math.round(value), cfg.min), zoneMax(cfg));
+const readZone = cfg => {
+  const n = parseFloat(getComputedStyle(document.documentElement).getPropertyValue(cfg.prop));
+  return Number.isFinite(n) ? n : cfg.def;
+};
+const writeZone = (cfg, value) => {
+  document.documentElement.style.setProperty(cfg.prop, `${value}px`);
+  $(cfg.id)?.setAttribute('aria-valuenow', String(value));
+};
+const setLeftMode = mode => { document.body.dataset.leftMode = mode; };
+
+/** 宽度 → 状态：不足 info 下限时取最近的固定态；达到下限后保留自由宽度 */
+const leftStateOf = width => width >= INFO_MIN_W
+  ? { mode: 'info', width: Math.round(width) }
+  : LEFT_STATES.reduce((a, b) => Math.abs(b.width - width) < Math.abs(a.width - width) ? b : a, LEFT_STATES[0]);
+
+/** 落到某个合法状态：同步宽度、显示模式、收起标记与持久化 */
+function applyLeftState(state) {
+  const cfg = ZONE_RESIZERS[0];
+  writeZone(cfg, state.width);
+  setLeftMode(state.mode);
+  if (state.mode === 'close') {
+    setNavCollapsed(true);
+    return;
+  }
+  document.body.classList.remove('nav-collapsed');
+  store.set('navCollapsed', false);
+  store.set(cfg.key, state.width);
+}
+
+function animateSnap() {
+  document.body.classList.add('zone-snapping');
+  window.setTimeout(() => document.body.classList.remove('zone-snapping'), 180);
+}
+
+/** 桌面端收起/展开左栏；收起时保留上次宽度，展开时恢复并同步状态 */
+function setNavCollapsed(collapsed) {
+  if (isNarrowScreen()) {
+    document.body.classList.toggle('nav-open', !collapsed);
+    syncNavToggleLabel();
+    return;
+  }
+  document.body.classList.toggle('nav-collapsed', collapsed);
+  store.set('navCollapsed', collapsed);
+  if (collapsed) {
+    setLeftMode('close');
+  } else {
+    const cfg = ZONE_RESIZERS[0];
+    const saved = store.get(cfg.key, cfg.def);
+    const width = clampZone(cfg, typeof saved === 'number' && saved > 0 ? saved : cfg.def);
+    writeZone(cfg, width);
+    setLeftMode(leftStateOf(width).mode);
+  }
+  syncNavToggleLabel();
+}
+
+function initZoneResizers() {
+  for (const cfg of ZONE_RESIZERS) {
+    const saved = store.get(cfg.key, null);
+    if (typeof saved === 'number' && Number.isFinite(saved) && (!cfg.states || saved > 0)) {
+      writeZone(cfg, clampZone(cfg, saved));
+    }
+  }
+  setLeftMode(!isNarrowScreen() && store.get('navCollapsed', false)
+    ? 'close'
+    : leftStateOf(readZone(ZONE_RESIZERS[0])).mode);
+  for (const cfg of ZONE_RESIZERS) {
+    const handle = $(cfg.id);
+    if (!handle) continue;
+    handle.setAttribute('aria-valuemin', String(cfg.min));
+    handle.setAttribute('aria-valuemax', String(zoneMax(cfg)));
+    handle.setAttribute('aria-valuenow', String(clampZone(cfg, readZone(cfg))));
+
+    handle.addEventListener('pointerdown', event => {
+      if (event.pointerType === 'mouse' && event.button !== 0) return;
+      const start = readZone(cfg);
+      const origin = cfg.axis === 'x' ? event.clientX : event.clientY;
+      handle.setPointerCapture?.(event.pointerId);
+      handle.classList.add('dragging');
+      document.body.classList.add('resizing');
+      event.preventDefault();
+
+      const onMove = e => {
+        const delta = (cfg.axis === 'x' ? e.clientX : e.clientY) - origin;
+        const value = clampZone(cfg, start + delta * cfg.sign);
+        writeZone(cfg, value);
+        if (cfg.states) setLeftMode(leftStateOf(value).mode); // 拖动中预览即将落入的状态
+      };
+      const onEnd = () => {
+        handle.removeEventListener('pointermove', onMove);
+        handle.removeEventListener('pointerup', onEnd);
+        handle.removeEventListener('pointercancel', onEnd);
+        handle.classList.remove('dragging');
+        document.body.classList.remove('resizing');
+        const value = readZone(cfg);
+        if (!cfg.states) {
+          store.set(cfg.key, value);
+          return;
+        }
+        const state = leftStateOf(value); // 任何松手位置都落到四态之一
+        if (state.width !== value) animateSnap();
+        applyLeftState(state);
+      };
+      handle.addEventListener('pointermove', onMove);
+      handle.addEventListener('pointerup', onEnd);
+      handle.addEventListener('pointercancel', onEnd);
+    });
+
+    // 键盘可达：左栏方向键在四态间切换，info 态内按步长调宽；其余区按 16px 步进
+    handle.addEventListener('keydown', event => {
+      const plus = cfg.axis === 'x' ? 'ArrowRight' : 'ArrowUp';
+      const minus = cfg.axis === 'x' ? 'ArrowLeft' : 'ArrowDown';
+      if (event.key !== plus && event.key !== minus) return;
+      event.preventDefault();
+      const dir = event.key === plus ? 1 : -1;
+      if (!cfg.states) {
+        const value = clampZone(cfg, readZone(cfg) + (event.shiftKey ? 32 : 16) * dir * cfg.sign);
+        writeZone(cfg, value);
+        store.set(cfg.key, value);
+        return;
+      }
+      const current = leftStateOf(readZone(cfg));
+      const step = event.shiftKey ? 32 : 16;
+      let state;
+      if (current.mode === 'info' && dir > 0) state = { mode: 'info', width: current.width + step };
+      else if (current.mode === 'info' && current.width > INFO_MIN_W) state = { mode: 'info', width: Math.max(INFO_MIN_W, current.width - step) };
+      else if (current.mode === 'info') state = LEFT_STATES[2];
+      else {
+        const order = ['close', 'icon', 'title', 'info'];
+        const idx = Math.min(order.length - 1, Math.max(0, order.indexOf(current.mode) + dir));
+        state = idx === 3 ? { mode: 'info', width: INFO_MIN_W } : LEFT_STATES[idx];
+      }
+      animateSnap();
+      applyLeftState(state);
+    });
+  }
+}
+
+/* ============================================================
    11. 启动
    ============================================================ */
 export function boot() {
   applyTheme(store.get('theme', 'dark'));
+  initZoneResizers();
   if (isFocusMode()) document.body.dataset.focus = '1';
   // localStorage 镜像写入失败（配额满等）：SQLite 仍可保存，仅提示一次，避免用户无感知
   let warned = false;
@@ -1097,8 +1313,18 @@ export function boot() {
   $('zoneRightClose')?.addEventListener('click', () => toggleRightPanel());
   const navToggle = $('navToggle'), backdrop = $('backdrop');
   if (navToggle && backdrop) {
-    navToggle.addEventListener('click', () => document.body.classList.toggle('nav-open'));
-    backdrop.addEventListener('click', () => document.body.classList.remove('nav-open'));
+    if (!isNarrowScreen() && store.get('navCollapsed', false)) document.body.classList.add('nav-collapsed');
+    navToggle.addEventListener('click', () => {
+      if (isNarrowScreen()) document.body.classList.toggle('nav-open');
+      else setNavCollapsed(!document.body.classList.contains('nav-collapsed'));
+      syncNavToggleLabel();
+    });
+    backdrop.addEventListener('click', () => {
+      document.body.classList.remove('nav-open');
+      syncNavToggleLabel();
+    });
+    window.addEventListener('resize', syncNavToggleLabel);
+    syncNavToggleLabel();
   }
 
   bus.on('route', renderAll);

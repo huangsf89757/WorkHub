@@ -17,6 +17,8 @@
   --r-sm: 5px; --r-md: 7px; --r-lg: 10px;
   --left-w: 208px; --right-w: 268px;
   --top-h: 44px; --bottom-h: 26px;
+  /* 拖拽后的用户尺寸：仅桌面映射为上面三区尺寸，窄屏仍用自身固定值 */
+  --user-left-w: 208px; --user-right-w: 268px; --user-bottom-h: 26px;
   /* 主题无关的遮罩/舞台点缀 token */
   --scrim: rgba(0,0,0,.45); --scrim-soft: rgba(0,0,0,.28);
   --stage-shadow-in: rgba(0,0,0,.35); --stage-shadow-out: rgba(0,0,0,.4);
@@ -67,7 +69,7 @@ body[data-theme="oled"] {
 html, body { height: 100%; overflow-x: clip; }
 body {
   font-family: var(--font); font-size: 13px; color: var(--text); background: var(--bg);
-  display: flex; flex-direction: column; overflow-y: hidden;
+  position: relative; display: flex; flex-direction: column; overflow-y: hidden;
   -webkit-font-smoothing: antialiased; caret-color: var(--accent);
 }
 button { font-family: inherit; color: inherit; background: none; border: none; cursor: pointer; font-size: 13px; }
@@ -147,7 +149,8 @@ a { color: var(--accent); text-decoration: none; }
 }
 .top-left { display: flex; align-items: center; gap: 10px; }
 .brand { font-family: var(--mono); font-size: 12.5px; font-weight: 700; letter-spacing: .02em; }
-.nav-toggle { display: none; }
+.nav-toggle { display: inline-flex; align-items: center; justify-content: center; }
+.nav-icon-collapse { display: none; }
 .top-mounts { display: flex; align-items: center; gap: 2px; margin-left: 8px; }
 .top-item {
   display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px;
@@ -168,10 +171,66 @@ a { color: var(--accent); text-decoration: none; }
 
 .app { flex: 1; display: flex; min-height: 0; }
 
+/* 桌面端把拖拽尺寸接到五区；窄屏（抽屉式左栏 / 隐藏右栏）不接管 */
+@media (min-width: 761px) {
+  :root {
+    --left-w: var(--user-left-w);
+    --right-w: var(--user-right-w);
+    --bottom-h: var(--user-bottom-h);
+  }
+}
+
+/* 五区尺寸拖拽手柄：细线默认隐形，hover / 拖拽 / 键盘聚焦时点亮 */
+.zone-resizer { position: absolute; z-index: 30; touch-action: none; background: transparent; }
+.zone-resizer::after {
+  content: ""; position: absolute; background: transparent; border-radius: 2px;
+  transition: background .12s;
+}
+.zone-resizer:hover::after,
+.zone-resizer.dragging::after,
+.zone-resizer:focus-visible::after { background: var(--accent); }
+.zone-resizer:focus-visible { outline: none; }
+.zone-resizer-left, .zone-resizer-right {
+  top: var(--top-h); bottom: var(--bottom-h); width: 10px; cursor: col-resize;
+}
+.zone-resizer-left { left: calc(var(--left-w) - 5px); }
+.zone-resizer-right { right: calc(var(--right-w) - 5px); }
+.zone-resizer-left::after { left: 4px; top: 0; bottom: 0; width: 2px; }
+.zone-resizer-right::after { right: 4px; top: 0; bottom: 0; width: 2px; }
+.zone-resizer-bottom {
+  left: 0; right: 0; bottom: calc(var(--bottom-h) - 5px); height: 10px; cursor: row-resize;
+}
+.zone-resizer-bottom::after { top: 4px; left: 0; right: 0; height: 2px; }
+body.resizing { user-select: none; }
+/* 松手吸附时的短过渡：只作用于宽度与手柄位置，拖动过程不受影响 */
+body.zone-snapping .zone-left { transition: width .16s cubic-bezier(.2,.7,.2,1); }
+body.zone-snapping .zone-resizer-left { transition: left .16s cubic-bezier(.2,.7,.2,1); }
+/* 手柄随对应分区一起显隐，避免拖到已经隐藏的区上 */
+@media (min-width: 761px) {
+  body.nav-collapsed .zone-resizer-left { display: none; }
+}
+@media (max-width: 900px) {
+  .zone-resizer-right { display: none; }
+}
+@media (max-width: 760px) {
+  .zone-resizer-left, .zone-resizer-bottom { display: none; }
+}
+body.right-hidden .zone-resizer-right,
+body[data-skin-layout="stage"] .zone-resizer-left,
+body[data-skin-layout="stage"] .zone-resizer-right,
+body[data-page="system"] .zone-resizer,
+body[data-focus="1"] .zone-resizer { display: none; }
+
 /* 左侧主菜单 */
 .zone-left {
   width: var(--left-w); flex: none; display: flex; flex-direction: column;
   padding: 8px 8px 10px; overflow-y: auto; user-select: none; background: var(--bg);
+}
+/* 桌面端左栏可收起；窄屏仍是抽屉式（见下方媒体查询） */
+@media (min-width: 761px) {
+  body.nav-collapsed .zone-left { display: none; }
+  body:not(.nav-collapsed) .nav-icon-collapse { display: block; }
+  body:not(.nav-collapsed) .nav-icon-menu { display: none; }
 }
 .nav-item {
   display: flex; align-items: center; gap: 8px; width: 100%; padding: 5px 8px;
@@ -199,6 +258,27 @@ a { color: var(--accent); text-decoration: none; }
 .nav-group-head .chev.open { transform: rotate(0); }
 .nav-group-name { font-size: 11px; font-weight: 600; color: var(--text-3); flex: 1; }
 .nav-group-count { font-size: 11px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+
+/* 左栏四态由 body[data-left-mode] 驱动（close / icon / title / info）
+   close 由 .nav-collapsed 隐藏整栏；只有 info 态宽度可变。 */
+@media (min-width: 761px) {
+  body[data-left-mode="title"] .nav-item { gap: 5px; padding: 5px 6px; }
+  body[data-left-mode="title"] .nav-badge,
+  body[data-left-mode="title"] .nav-kbd,
+  body[data-left-mode="title"] .nav-group-count { display: none; }
+  body[data-left-mode="title"] .nav-group-head { padding-left: 6px; padding-right: 6px; }
+
+  body[data-left-mode="icon"] .nav-item { justify-content: center; gap: 0; padding: 8px 0; }
+  body[data-left-mode="icon"] .nav-item .icon { width: 18px; height: 18px; }
+  body[data-left-mode="icon"] .nav-name,
+  body[data-left-mode="icon"] .nav-badge,
+  body[data-left-mode="icon"] .nav-kbd,
+  body[data-left-mode="icon"] .nav-group-name,
+  body[data-left-mode="icon"] .nav-group-count { display: none; }
+  body[data-left-mode="icon"] .nav-sys { padding-top: 10px; padding-bottom: 8px; }
+  body[data-left-mode="icon"] .nav-group-head { justify-content: center; gap: 0; padding: 10px 0 4px; }
+  body[data-left-mode="icon"] .nav-group-head .chev { width: 12px; height: 12px; opacity: .7; }
+}
 
 /* 中间主内容 */
 .zone-center {
@@ -425,7 +505,6 @@ h1, h2, h3, .page-title { text-wrap: balance; }
 }
 @media (max-width: 760px) {
   :root { --top-h: calc(48px + env(safe-area-inset-top)); --bottom-h: calc(28px + env(safe-area-inset-bottom)); }
-  .nav-toggle { display: inline-flex; align-items: center; justify-content: center; }
   .zone-top { padding: env(safe-area-inset-top) max(12px, env(safe-area-inset-right)) 0 max(12px, env(safe-area-inset-left)); }
   .top-mounts { display: none; }
   .zone-left {
@@ -475,7 +554,8 @@ h1, h2, h3, .page-title { text-wrap: balance; }
 /* stage 皮肤：隐藏常规分栏，center 撑满 */
 body[data-skin-layout="stage"] .zone-left,
 body[data-skin-layout="stage"] .zone-right,
-body[data-skin-layout="stage"] .top-mounts { display: none !important; }
+body[data-skin-layout="stage"] .top-mounts,
+body[data-skin-layout="stage"] .nav-toggle { display: none !important; }
 body[data-skin-layout="stage"] .zone-center { border: none; background: var(--bg); overflow: hidden; overflow-x: clip; }
 body[data-skin-layout="stage"] .zone-bottom { justify-content: center; }
 
@@ -633,17 +713,17 @@ body[data-page="system"] .top-system { display: flex; }
 /* ============================================================
    任务扩展（首个业务扩展样板）
    ============================================================ */
-/* 飞书式工具栏 */
-.todo-toolbar-fs { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; margin-bottom: 10px; }
+/* 扩展通用模板：工具栏（旧 .todo-* 别名保留兼容） */
+.ext-toolbar, .todo-toolbar-fs { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; margin-bottom: 10px; }
 .todo-new { gap: 5px; }
-.todo-tbtn {
+.ext-tbtn, .todo-tbtn {
   display: inline-flex; align-items: center; gap: 5px; padding: 5px 9px;
   font-size: 12px; color: var(--text-2); border: 1px solid transparent;
   border-radius: var(--r-sm); white-space: nowrap;
 }
-.todo-tbtn:hover { background: var(--bg-hover); color: var(--text); }
-.todo-tbtn.active { color: var(--accent); background: var(--accent-soft); border-color: var(--accent); }
-.todo-tbtn .icon { width: 14px; height: 14px; }
+.ext-tbtn:hover, .todo-tbtn:hover { background: var(--bg-hover); color: var(--text); }
+.ext-tbtn.active, .todo-tbtn.active { color: var(--accent); background: var(--accent-soft); border-color: var(--accent); }
+.ext-tbtn .icon, .todo-tbtn .icon { width: 14px; height: 14px; }
 
 /* 浮层菜单 */
 .todo-menu {
@@ -662,11 +742,11 @@ body[data-page="system"] .top-system { display: flex; }
 .todo-menu-item.danger:hover { background: var(--danger-soft); }
 .todo-menu-sep { height: 1px; background: var(--line); margin: 4px 6px; }
 
-/* 视图 tab */
-.todo-tabs { display: flex; align-items: center; gap: 4px; margin-bottom: 8px; border-bottom: 1px solid var(--line); }
-.todo-tab { padding: 7px 12px; font-size: 12.5px; color: var(--text-2); border-bottom: 2px solid transparent; }
-.todo-tab:hover { color: var(--text); }
-.todo-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
+/* 扩展通用模板：视图 tab（旧 .todo-* 别名保留兼容） */
+.ext-tabs, .todo-tabs { display: flex; align-items: center; gap: 4px; margin-bottom: 8px; border-bottom: 1px solid var(--line); }
+.ext-tab, .todo-tab { padding: 7px 12px; font-size: 12.5px; color: var(--text-2); border-bottom: 2px solid transparent; }
+.ext-tab:hover, .todo-tab:hover { color: var(--text); }
+.ext-tab.active, .todo-tab.active { color: var(--accent); border-bottom-color: var(--accent); }
 
 /* 任务行（列模板由 JS 内联 grid-template-columns） */
 .todo-row {
@@ -801,9 +881,9 @@ body[data-page="system"] .top-system { display: flex; }
 /* ============================================================
    界面样式详情页（skin-detail 系统页）
    ============================================================ */
-/* 通用浮层菜单 */
+/* 通用浮层菜单：可能被 openModal 的遮罩（z-index 100）内控件唤起，须高于遮罩 */
 .pop-menu {
-  position: fixed; z-index: 60; min-width: 148px; padding: 4px;
+  position: fixed; z-index: 300; min-width: 148px; padding: 4px;
   background: var(--bg-panel); border: 1px solid var(--line-strong);
   border-radius: var(--r-sm); box-shadow: 0 8px 24px var(--shadow);
 }
@@ -954,6 +1034,17 @@ body[data-page="system"] .top-system { display: flex; }
 }
 .ed-doc-link:hover { color: var(--accent); }
 .ed-doc-link .icon { width: 14px; height: 14px; }
+
+/* 扩展 UI 交互预览：可滚动、可操作，数据仅在闭包副本中 */
+.ed-ui-preview {
+  height: 460px; min-height: 200px; max-height: 80vh;
+  overflow: auto; resize: vertical;
+  border: 1px solid var(--line-strong); border-radius: var(--r-sm); background: var(--bg);
+}
+.ed-ui-preview .todo-page { max-width: none; padding: 18px 20px 24px; }
+.ed-ui-preview .page-header { margin-bottom: 14px; }
+.ed-ui-preview input:disabled, .ed-ui-preview select:disabled,
+.ed-ui-preview textarea:disabled, .ed-ui-preview button:disabled { opacity: .75; cursor: default; }
 
 /* 能力矩阵 */
 .ed-hook-title { margin: 18px 0 8px; font-size: 11px; font-weight: 600; color: var(--text-3); }
