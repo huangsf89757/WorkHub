@@ -1,18 +1,19 @@
-/* skin-studio3d.js — 3D 工作室皮肤（UI 样式作为扩展的示范实现）
+/* theme-style-studio3d.js — 3D 工作室主题风格（UI 样式作为扩展的示范实现）
  *
  * 主界面变为一间等距 3D 工作室：地面 + 桌子 + 电脑 + 宠物 + 小人 + 书架 + 工具箱。
  * 每个"实物"是一个扩展挂载点：点击实物 → 打开它挂载的扩展。
- * 挂载关系由用户配置（core.getSkinMounts / setSkinMount），未配置时用 defaultExt，
+ * 挂载关系由用户配置（core.getThemeStyleMounts / setThemeStyleMount），未配置时用 defaultExt，
  * 因此"扩展挂到 3D 模型的实物上"完全数据驱动。
  *
- * 纯 CSS 3D + SVG，零依赖、零构建、跟随主题 token；遵守无渐变无玻璃约束。
+ * 纯 CSS 3D + SVG，零依赖、零构建、跟随主题色 token；遵守无渐变无玻璃约束。
  */
 import {
-  registerSkin, getSkinMounts, setSkinMount, getCustomSkinPoints,
+  registerThemeStyle, getThemeStyleMounts, setThemeStyleMount, getCustomThemeStylePoints,
   getPlannedFeatures, registry, router, icons, el, openModal, toast, bus, field,
+  mountEnabledOf,
 } from './core.js';
 
-const SKIN_ID = 'studio3d';
+const THEME_STYLE_ID = 'studio3d';
 
 /* ---------- 场景实物（扩展挂载点） ---------- */
 // pos: 地面上的百分比坐标；defaultExt: 默认挂载
@@ -46,14 +47,15 @@ function targetLabel(id) {
 
 /* ---------- 单个实物 DOM ---------- */
 function objectNode(obj) {
-  const extId = getSkinMounts(SKIN_ID)[obj.id] || obj.defaultExt;
+  const extId = getThemeStyleMounts(THEME_STYLE_ID)[obj.id] || obj.defaultExt;
+  const disabled = !mountEnabledOf(THEME_STYLE_ID, obj.id);
   const node = el('button', {
-    class: `studio-object obj-${obj.kind}`,
-    style: `left:${obj.pos.x}%;top:${obj.pos.y}%;`,
-    title: `${obj.name} · ${obj.desc} → ${targetLabel(extId)}`,
-    'aria-label': `打开「${obj.name}」，当前挂载：${targetLabel(extId)}`,
-    // 已安装/系统页真实打开；规划项内核显示"规划中"占位
-    onclick: () => router.go(extId),
+    class: `studio-object obj-${obj.kind}` + (disabled ? ' disabled' : ''),
+    style: `left:${obj.pos.x}%;top:${obj.pos.y}%;${disabled ? 'opacity:.4' : ''}`,
+    title: `${obj.name} · ${obj.desc} → ${targetLabel(extId)}${disabled ? '（已停用）' : ''}`,
+    'aria-label': `${disabled ? '已停用的挂载点' : '打开'}「${obj.name}」，当前挂载：${targetLabel(extId)}`,
+    // 停用挂载点只提示，不打开扩展
+    onclick: disabled ? () => toast(`挂载点「${obj.name}」已停用`) : () => router.go(extId),
   });
   node.dataset.point = obj.id;
 
@@ -73,7 +75,7 @@ function objectNode(obj) {
 /* ---------- 挂载配置弹窗 ---------- */
 export function openStudioSettings() {
   const rows = OBJECTS.map(obj => {
-    const selected = getSkinMounts(SKIN_ID)[obj.id] || obj.defaultExt;
+    const selected = getThemeStyleMounts(THEME_STYLE_ID)[obj.id] || obj.defaultExt;
     const select = el('select', { class: 'input select' },
       mountTargets().map(target => {
         const option = el('option', { value: target.id }, target.label);
@@ -89,12 +91,12 @@ export function openStudioSettings() {
   openModal('3D 工作室 · 挂载设置', body, [
     { label: '取消' },
     { label: '重置默认', onClick: () => {
-      OBJECTS.forEach(obj => setSkinMount(SKIN_ID, obj.id, null));
+      OBJECTS.forEach(obj => setThemeStyleMount(THEME_STYLE_ID, obj.id, null));
       toast('已恢复默认挂载');
     } },
     { label: '保存', primary: true, onClick: close => {
       body.querySelectorAll('select').forEach((select, i) => {
-        setSkinMount(SKIN_ID, OBJECTS[i].id, select.value || null);
+        setThemeStyleMount(THEME_STYLE_ID, OBJECTS[i].id, select.value || null);
       });
       toast('挂载已更新');
       close();
@@ -105,7 +107,7 @@ export function openStudioSettings() {
 
 /** 内建实物 + 用户在详情页新增的自定义挂载点（带默认摆放坐标） */
 function stageObjects() {
-  const custom = getCustomSkinPoints(SKIN_ID).map((p, i) => ({
+  const custom = getCustomThemeStylePoints(THEME_STYLE_ID).map((p, i) => ({
     ...p,
     desc: p.desc || '自定义挂载点',
     icon: p.icon || icons.puzzle,
@@ -141,7 +143,7 @@ function renderStage() {
     el('div', { class: 'studio-viewport' }, room), hint);
 }
 
-/* ---------- 皮肤专属设置面板（嵌入设置页） ---------- */
+/* ---------- 主题风格专属设置面板（嵌入设置页） ---------- */
 function settingsPanel() {
   return el('div', { class: 'studio-settings-inline' },
     el('div', { class: 'panel-head' }, el('h3', {}, '3D 工作室 · 实物挂载')),
@@ -152,8 +154,8 @@ function settingsPanel() {
         el('button', { class: 'btn', onclick: openStudioSettings }, '配置')))));
 }
 
-registerSkin({
-  id: SKIN_ID,
+registerThemeStyle({
+  id: THEME_STYLE_ID,
   name: '3D 工作室',
   icon: icons.blog,
   desc: '把主界面变成一间 3D 工作室：桌子、电脑、宠物、小人都是扩展挂载点，点击即可打开对应功能。',

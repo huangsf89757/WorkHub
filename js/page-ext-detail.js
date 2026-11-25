@@ -7,8 +7,7 @@
  */
 import {
   el, icons, router, bus, registerSystemPage,
-  registry, getPlannedFeatures,
-  getActiveSkin, getSkinMountPoints, placementOf, resolveMount, ZONES,
+  registry, getPlannedFeatures, extStageLabel, extStageOf,
 } from './core.js';
 import { renderMarkdown } from './md.js';
 
@@ -26,30 +25,14 @@ const SYSTEM_META = {
   'ext-center': {
     id: 'ext-center', name: '扩展中心', icon: icons.puzzle, kind: 'system',
     desc: '内核系统页：枚举已安装与规划中的扩展，查看挂载点分布并管理启用状态。',
-    group: '内核系统页', order: '—', mounts: ['center'], hooks: [],
-    docFile: 'docs/architecture.md',
+    hooks: [], docFile: 'docs/architecture.md',
   },
   'settings': {
     id: 'settings', name: '设置', icon: icons.settings, kind: 'system',
-    desc: '内核系统页：主题、界面样式与设备同步信息。',
-    group: '内核系统页', order: '—', mounts: ['center'], hooks: [],
-    docFile: 'docs/README.md',
+    desc: '内核系统页：主题色、主题风格与设备同步信息。',
+    hooks: [], docFile: 'docs/README.md',
   },
 };
-
-/** 已安装扩展挂载区：placement + stage 实物 / skinMount 反查 */
-function installedMounts(ext) {
-  const out = [];
-  const skin = getActiveSkin();
-  const place = placementOf(ext);
-  if (place.zone === 'top') out.push('top');
-  else if (place.zone === 'left') out.push('left');
-  // skinMount 型（3D 实物 / classic 左栏底部）按配置反查
-  const points = getSkinMountPoints(skin).filter(p => skin?.layout === 'stage' || p.via === 'skinMount');
-  for (const p of points) if (resolveMount(skin, p) === ext.id) out.push(p.name);
-  if (!out.length) out.push('center');
-  return [...new Set(out)];
-}
 
 function makeReadme(info) {
   const hookRows = HOOKS.map(([key, sig, label, zone]) =>
@@ -63,8 +46,6 @@ function makeReadme(info) {
     '',
     `- 类型：**${info.kindLabel}**`,
     `- 分组：${info.group}`,
-    `- 挂载：${info.mounts.map(m => ZONES[m]?.label || m).join('、')}`,
-    info.priority ? `- 优先级 / 顺序：${info.priority}` : '',
     '',
     `## 扩展契约`,
     '',
@@ -93,16 +74,17 @@ function makeReadme(info) {
 export function extInfo(id) {
   if (SYSTEM_META[id]) {
     const m = SYSTEM_META[id];
-    return { ...m, kindLabel: '内核系统页', status: '系统页', readme: m.readme || makeReadme({ ...m, hooks: [] }), links: [] };
+    return {
+      ...m, group: extStageLabel('system'), kindLabel: '系统内置', status: '系统内置',
+      readme: m.readme || makeReadme({ ...m, hooks: [] }), links: [],
+    };
   }
   const ext = registry.get(id);
   if (ext) {
     const info = {
       id, name: ext.name || id, icon: ext.icon || icons.puzzle, kind: 'installed',
       kindLabel: '已安装扩展', status: '已安装', desc: ext.desc || '',
-      group: ext.group === 'main' ? '主菜单' : (ext.group || '主菜单'),
-      priority: ext.order != null ? `order ${ext.order}` : '',
-      mounts: ext.mounts?.length ? installedMounts(ext) : installedMounts(ext),
+      group: extStageLabel(extStageOf(id)),
       hooks: HOOKS.filter(([key]) => typeof ext[key] === 'function').map(([key]) => key),
       docFile: ext.docFile || `docs/extensions/${id}.md`,
       ext,
@@ -117,9 +99,8 @@ export function extInfo(id) {
   if (planned) {
     const info = {
       id, name: planned.name || id, icon: planned.icon || icons.puzzle, kind: 'planned',
-      kindLabel: '规划中扩展', status: '规划中', desc: planned.desc || '',
-      group: planned.group || '未分组', priority: planned.priority || '—',
-      mounts: planned.mounts || [], hooks: planned.hooks || [],
+      kindLabel: '规划中扩展', status: extStageLabel(extStageOf(id)), desc: planned.desc || '',
+      group: extStageLabel(extStageOf(id)), hooks: planned.hooks || [],
       docFile: planned.docFile || 'FEATURES.md',
     };
     return {
@@ -146,8 +127,6 @@ function introView(info) {
       kv('状态', info.status),
       kv('类型', info.kindLabel),
       kv('分组', info.group),
-      kv('优先级 / 顺序', info.priority || '—'),
-      kv('挂载位置', info.mounts.map(m => ZONES[m]?.label || m).join('、') || '—'),
       kv('已实现钩子', info.hooks.length ? info.hooks.join(' / ') : '—', true),
       kv('文档', info.docFile, true)),
     el('div', { class: 'sd-contract' },
@@ -206,7 +185,7 @@ function previewView(info) {
   return box;
 }
 
-/* ---------- Tab 容器（复用皮肤详情页的键盘语义） ---------- */
+/* ---------- Tab 容器（复用主题风格详情页的键盘语义） ---------- */
 const TABS = [['intro', '介绍'], ['readme', 'README'], ['preview', '预览']];
 const VIEW = { intro: introView, readme: readmeView, preview: previewView };
 

@@ -19,17 +19,17 @@
 |---|---|---|
 | `todo` | ✅ 已实现 | [extensions/todo.md](extensions/todo.md) |
 
-## 界面样式
+## 主题风格
 
-| 界面样式 | 状态 | 文档 |
+| 主题风格 | 状态 | 文档 |
 |---|---|---|
-| `classic`（经典分栏） | ✅ 已实现 · 默认 | [skins/classic.md](skins/classic.md) |
-| `studio3d`（3D 工作室） | ✅ 已实现 | [skins/studio3d.md](skins/studio3d.md) |
+| `classic`（经典分栏） | ✅ 已实现 · 默认 | [themeStyles/classic.md](themeStyles/classic.md) |
+| `studio3d`（3D 工作室） | ✅ 已实现 | [themeStyles/studio3d.md](themeStyles/studio3d.md) |
 
 ## 项目根文档
 
 | 文档 | 说明 |
 |---|---|
 | [`PRODUCT.md`](../PRODUCT.md) | 产品定位与功能事实 |
-| [`FEATURES.md`](../FEATURES.md) | 扩展与界面样式清单、跨端能力状态、新增约定 |
+| [`FEATURES.md`](../FEATURES.md) | 扩展与主题风格清单、跨端能力状态、新增约定 |
 | [`ROADMAP.md`](../ROADMAP.md) | 分阶段实现排期（Sprint 0–9） |

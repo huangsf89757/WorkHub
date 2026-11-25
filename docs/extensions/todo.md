@@ -5,7 +5,7 @@
 
 ## 1. 定位
 
-分组待办管理。验证"扩展契约 + 通用 DAO + 同步元数据 + 五区渲染 + 界面样式挂载"端到端可用，同时作为新扩展的实现范本。
+分组待办管理。验证"扩展契约 + 通用 DAO + 同步元数据 + 五区渲染 + 主题风格挂载"端到端可用，同时作为新扩展的实现范本。
 
 ## 2. 扩展契约
 
@@ -94,7 +94,7 @@ declareDomain('todoGroups', [])
 - `data.js`：`state / declareDomain / insert / update / remove / alive / byId / newMeta / uid`
 - 存储：`commit` 自动镜像 localStorage → LocalAdapter(SQLite/IndexedDB) → outbox → 重绘
 
-## 7. 界面样式适配
+## 7. 主题风格适配
 
 - 经典分栏：左侧导航项 + center（统计卡片 + 列表）；四边侧栏只挂扩展入口，详情统一在中间区
 - 3D 工作室：默认挂在"电脑"实物（`defaultExt: 'todo'`），点击进真实 任务页并带返回舞台条

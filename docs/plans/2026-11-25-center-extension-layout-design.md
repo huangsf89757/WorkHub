@@ -28,8 +28,8 @@ URL(hash) 路由 + 统计聚合进 center + 四边侧栏只放入口 + 扩展详
 
 ## 4. 五区职责收敛与统计聚合
 
-- `ZONES` 中 `right`/`bottom` 的 `role` 由 `panel` 改为 `entry`（入口）；`js/skin-classic.js` 的挂载点描述同步。
-- `renderRight()/renderBottom()` 不再调用 `ext.panel()/ext.status()`，改为渲染挂载到该区的扩展**入口按钮**（点击 `router.go(extId)` 进 center），来源仍是 `mounts` + `skinMounts`。任务只挂 `left`，故 right 默认隐藏；bottom 只保留系统级状态（平台标签 + 快捷键），`setDefaultStatus` 里的 任务计数移走。
+- `ZONES` 中 `right`/`bottom` 的 `role` 由 `panel` 改为 `entry`（入口）；`js/theme-style-classic.js` 的挂载点描述同步。
+- `renderRight()/renderBottom()` 不再调用 `ext.panel()/ext.status()`，改为渲染挂载到该区的扩展**入口按钮**（点击 `router.go(extId)` 进 center），来源仍是 `mounts` + `themeStyleMounts`。任务只挂 `left`，故 right 默认隐藏；bottom 只保留系统级状态（平台标签 + 快捷键），`setDefaultStatus` 里的 任务计数移走。
 - 任务删除 `panel()/status()`，把"待完成/已完成/已逾期/完成率 + 分组分布"做成 center 主页顶部统计卡片；"N 待办未完成 · M 逾期"作为卡片摘要；移除原"N 待完成"右栏开关按钮。
 - `docs/architecture.md` 契约表、`js/page-ext-detail.js` 钩子表、`docs/extensions/todo.md` 同步更新。
 

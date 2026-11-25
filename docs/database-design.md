@@ -2,7 +2,7 @@
 
 > ADR-002 · 权威设计文档 · 最后更新 2026-11-24
 > 当前 schema 版本：**v8** · 实现文件：`js/db.js`
-> 关联文档：[架构 ADR-003](architecture.md) · [界面样式 ADR-004](architecture.md) · [同步协议](sync-protocol.md)
+> 关联文档：[架构 ADR-003](architecture.md) · [主题风格 ADR-004](architecture.md) · [同步协议](sync-protocol.md)
 
 ---
 
@@ -101,7 +101,7 @@ IndexedDB（workhub_db/db）   —— 字节 blob 落盘，页重载不丢
 | 偏好/身份 | `wh_sys_settings_<key>` |
 | 未登记未来域 | `wh_<logical>`（兜底） |
 
-偏好键（`PREF_KEYS`）：`theme` `skin` `skinMounts` `skinPoints` `menuLayout` `extEnabled` `rightCollapsed` `shortcuts` `searchRules` `leftW` `rightW` `bottomH` `navCollapsed` `links` `currentUserId` `currentUserName` `deviceId`。
+偏好键（`PREF_KEYS`）：`themeColor` `themeStyle` `themeStyleMounts` `themeStylePoints` `menuLayout` `extEnabled` `mountEnabled` `rightCollapsed` `shortcuts` `searchRules` `leftW` `rightW` `bottomH` `navCollapsed` `links` `currentUserId` `currentUserName` `deviceId`。
 
 ---
 
@@ -223,7 +223,7 @@ erDiagram
 
 | 列 | 类型 | 约束 | 说明 |
 |---|---|---|---|
-| key | TEXT | PK | 逻辑 key（`theme`、`extEnabled`…） |
+| key | TEXT | PK | 逻辑 key（`themeColor`、`extEnabled`…） |
 | value | TEXT | 可空 | JSON 序列化值 |
 | scope | TEXT | NOT NULL DEFAULT 'user' | `user` / `device` / `global`（为将来同步预留） |
 | updated_at | INTEGER | 可空 | 更新时间 |

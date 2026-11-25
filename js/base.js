@@ -21,9 +21,9 @@ export const bus = {
 /* ============================================================
    系统偏好与 localStorage key 规范（v5：与 SQLite 表名对应）
    ------------------------------------------------------------
-   逻辑 key（业务代码传入，如 'todos'/'theme'）→ 物理 key（localStorage 实际存储）：
+   逻辑 key（业务代码传入，如 'todos'/'themeColor'）→ 物理 key（localStorage 实际存储）：
      · 业务域  → wh_<表名>，如 todos → wh_ext_todo_items
-     · 偏好/身份 → wh_sys_settings_<key>，如 theme → wh_sys_settings_theme
+     · 偏好/身份 → wh_sys_settings_<key>，如 themeColor → wh_sys_settings_themeColor
    映射只在物理存储层发生，bus.emit('pref') 仍发逻辑 key（db.js 依赖）。
    调用方零改动；老 key 由 migrateStorageKeys() 在启动时平滑迁移。
    ============================================================ */
@@ -37,8 +37,8 @@ const DOMAIN_TABLE = Object.freeze({
 
 /** 偏好/身份逻辑 key（存进 sys_settings 表命名空间） */
 const PREF_KEYS = Object.freeze(new Set([
-  'theme', 'skin', 'skinMounts', 'skinPoints', 'menuLayout',
-  'extEnabled', 'rightCollapsed', 'shortcuts', 'searchRules',
+  'themeColor', 'themeStyle', 'themeStyleMounts', 'themeStylePoints', 'menuLayout',
+  'extEnabled', 'mountEnabled', 'extInstallState', 'rightCollapsed', 'shortcuts', 'searchRules',
   'leftW', 'rightW', 'bottomH', 'navCollapsed', // 五区拖拽后的尺寸与左栏收起偏好
   'todoLastGroupId', // 新建任务弹窗上次选择的分组（下次默认选中）
   'links', // 无独立表的通用 KV，归入系统设置命名空间
@@ -73,8 +73,23 @@ export function migrateStorageKeys() {
   };
   // 业务域：老 wh_todos → 新 wh_ext_todo_items
   for (const logical of Object.keys(DOMAIN_TABLE)) move(PREFIX + logical, storageKey(logical));
-  // 偏好/身份：老 wh_theme → 新 wh_sys_settings_theme
+  // 偏好/身份：老 wh_theme → 新 wh_sys_settings_themeColor
   for (const logical of PREF_KEYS) move(PREFIX + logical, storageKey(logical));
+  // 术语统一迁移（皮肤→主题风格、主题风格→主题色）：旧物理 key → 新物理 key。
+  // 覆盖两类历史存量：wh_sys_settings_<旧>（v5+ 规范）与 wh_<旧>（更早期裸 key）。
+  const RENAMED_PREF_KEYS = {
+    themeColor: ['theme'],
+    themeStyle: ['skin'],
+    themeStyleMounts: ['skinMounts'],
+    themeStylePoints: ['skinPoints'],
+  };
+  for (const [logical, legacyNames] of Object.entries(RENAMED_PREF_KEYS)) {
+    const newKey = storageKey(logical);
+    for (const legacy of legacyNames) {
+      move(PREFIX + 'sys_settings_' + legacy, newKey);
+      move(PREFIX + legacy, newKey);
+    }
+  }
   return n;
 }
 

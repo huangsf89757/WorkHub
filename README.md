@@ -10,7 +10,7 @@
 ## 特性
 
 - **本地优先**：所有写入先落本机，离线可用；联网后由同步引擎在后台合并
-- **五区布局 + 双扩展维度**：业务扩展与界面样式各自独立注册
+- **五区布局 + 双扩展维度**：业务扩展与主题风格各自独立注册
 - **多端同步**：Supabase 云端直连（REST/Auth/RPC，零 SDK），`auth.uid()` RLS 用户隔离，记录级 LWW 冲突收敛
 - **可扩展**：统一 `meta` / `outbox` 写路径，新增业务域无需改云端表
 
@@ -33,7 +33,7 @@
 ## 项目结构
 
 ```
-js/           核心与扩展（core/data/db/sync、cloud-*、ext-*、skin-*）
+js/           核心与扩展（core/data/db/sync、cloud-*、ext-*、theme-style-*）
 supabase/     云端迁移与 RLS 验证脚本
 docs/         架构、设计、协议与接入指南
 tests/        单元测试

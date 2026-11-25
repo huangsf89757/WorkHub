@@ -1,20 +1,22 @@
 /* page-settings.js — 设置系统页（左侧分栏 + 栏内搜索 + VSCode 式源码）
  *
- * 结构：标题 → 左侧（搜索框 + 分类导航）/ 右侧（界面视图 或 源码视图）。
- * 分类：账户 / 通用（含快捷键、界面样式、主题风格）/ 关于。
+ * 结构：顶栏（返回 + 标题 + 界面/源码图标切换） → 左侧（搜索框 + 分类导航）/ 右侧（界面视图 或 源码视图）。
+ * 分类：账户 / 通用（含快捷键、主题风格、主题色）/ 关于。
  * 搜索：由 settings.search.json 的 aliases 驱动，命中设置键对应的分类。
  * 源码：settings.json 为默认模板，localStorage 为生效值；两个视图双向同步。
  * 数据全部取自现有契约（core / sync / platform / version.json），偏好键不混入业务数据。
  */
 import {
   el, icons, router, bus, store, registerSystemPage, toast, leaveSystem,
-  themeNames, applyTheme, input,
-  getAllSkins, getActiveSkin, setActiveSkin,
+  registerUnappliedGuard, guardUnappliedNavigation,
+  themeColorNames, applyThemeColor, input,
+  getAllThemeStyles, getActiveThemeStyle, setActiveThemeStyle,
   openPopMenu, openModal, fmtTime,
   SHORTCUT_ACTIONS, getShortcuts, setShortcut, resetShortcuts,
-  comboFromEvent, formatShortcut,
+  getExtShortcuts, setExtShortcut, removeExtShortcut, shortcutExtCandidates,
+  comboFromEvent, formatShortcut, registry,
 } from './core.js';
-import { openSkinDetail } from './page-skin-detail.js';
+import { openThemeStyleDetail } from './page-theme-style-detail.js';
 import { syncSnapshot } from './sync.js';
 import { downloadBackup, downloadDatabaseFile, readBackupFile, applyBackup, getLastBackupAt } from './backup.js';
 import platform, { PLATFORM_LABEL } from './platform.js';
@@ -32,7 +34,7 @@ fetch(new URL('../version.json', import.meta.url))
 /* ---------- VSCode 式设置：源码模板 + 搜索规则（异步加载，失败降级） ---------- */
 const SETTINGS_URL = new URL('../settings.json', import.meta.url);
 const SEARCH_URL = new URL('../settings.search.json', import.meta.url);
-let SETTINGS_DEFAULT = { theme: 'dark', skin: 'classic', shortcuts: {} };
+let SETTINGS_DEFAULT = { themeColor: 'dark', themeStyle: 'classic', shortcuts: {} };
 let SEARCH_RULES = null;         // 当前生效的搜索规则（可应用内编辑覆盖）
 let SEARCH_RULES_DEFAULT = null; // 文件默认，供「载入默认」恢复
 const loadDefaults = () => {
@@ -58,13 +60,14 @@ let activeCat = 'general';
 let query = '';
 let viewMode = 'visual';   // 'visual' | 'source'
 let sourceFile = 'settings'; // 'settings' | 'search' —— 源码视图当前编辑哪份文件
-let sourceText = '';       // 源码编辑器内容
-let sourceError = '';      // 源码校验/保存错误提示
+let sourceDraft = { settings: '', search: '' };  // 编辑器文本（可能含未应用的更改）
+let sourceApplied = { settings: '', search: '' }; // 已应用文本，用于判定是否有未应用更改
+let sourceError = '';      // 源码校验/应用错误提示
 
 /* ---------- 元数据 ---------- */
 const CATS = [
   { id: 'account', name: '账户', icon: icons.user, desc: '身份、设备与数据同步' },
-  { id: 'general', name: '通用', icon: icons.settings, desc: '启动行为、快捷键、界面样式与主题' },
+  { id: 'general', name: '通用', icon: icons.settings, desc: '启动行为、快捷键、主题风格与主题色' },
   { id: 'data', name: '数据与备份', icon: icons.inbox, desc: '导出备份、导入恢复，防止清理浏览器数据后丢失' },
   { id: 'about', name: '关于', icon: icons.info, desc: '版本信息与文档' },
 ];
@@ -92,8 +95,8 @@ const cardFor = (key, title, ...body) => {
 /** 当前生效设置 → settings.json 文本（镜像当前 localStorage 与 body 状态） */
 function serializeSettings() {
   const obj = {
-    theme: document.body.dataset.theme || SETTINGS_DEFAULT.theme || 'dark',
-    skin: getActiveSkin()?.id || SETTINGS_DEFAULT.skin || 'classic',
+    themeColor: document.body.dataset.themeColor || SETTINGS_DEFAULT.themeColor || 'dark',
+    themeStyle: getActiveThemeStyle()?.id || SETTINGS_DEFAULT.themeStyle || 'classic',
     shortcuts: getShortcuts(),
   };
   return JSON.stringify(obj, null, 2);
@@ -118,37 +121,49 @@ function applySettingsObject(obj) {
   if (!obj || typeof obj !== 'object' || Array.isArray(obj))
     return { ok: false, error: '设置必须是一个 JSON 对象' };
 
-  if ('theme' in obj) {
-    if (typeof obj.theme !== 'string' || !themeNames[obj.theme])
-      return { ok: false, error: `未知主题：${String(obj.theme)}（可选 ${Object.keys(themeNames).join(' / ')}）` };
+  if ('themeColor' in obj) {
+    if (typeof obj.themeColor !== 'string' || !themeColorNames[obj.themeColor])
+      return { ok: false, error: `未知主题色：${String(obj.themeColor)}（可选 ${Object.keys(themeColorNames).join(' / ')}）` };
   }
-  if ('skin' in obj) {
-    if (typeof obj.skin !== 'string' || !getAllSkins().some(s => s.id === obj.skin))
-      return { ok: false, error: `未知界面样式：${String(obj.skin)}（可选 ${getAllSkins().map(s => s.id).join(' / ')}）` };
+  if ('themeStyle' in obj) {
+    if (typeof obj.themeStyle !== 'string' || !getAllThemeStyles().some(s => s.id === obj.themeStyle))
+      return { ok: false, error: `未知主题风格：${String(obj.themeStyle)}（可选 ${getAllThemeStyles().map(s => s.id).join(' / ')}）` };
   }
   if ('shortcuts' in obj) {
     const sc = obj.shortcuts;
     if (!sc || typeof sc !== 'object' || Array.isArray(sc))
       return { ok: false, error: 'shortcuts 必须是一个对象' };
+    const entries = [];
     for (const a of SHORTCUT_ACTIONS) {
       if (typeof sc[a.id] !== 'string' || !sc[a.id].trim())
         return { ok: false, error: `快捷键 ${a.id} 的值无效（应形如 "mod+,"）` };
+      entries.push({ name: a.label, combo: String(sc[a.id]).trim() });
+    }
+    for (const [key, combo] of Object.entries(sc)) {
+      if (!key.startsWith('ext:')) continue;
+      if (typeof combo !== 'string' || !combo.trim())
+        return { ok: false, error: `快捷键 ${key} 的值无效` };
+      const extId = key.slice(4);
+      entries.push({ name: `扩展「${registry.get(extId)?.name || extId}」`, combo: String(combo).trim() });
     }
     const seen = new Map();
-    for (const a of SHORTCUT_ACTIONS) {
-      for (const slot of slotsOf(sc[a.id])) {
+    for (const e of entries) {
+      for (const slot of slotsOf(e.combo)) {
         if (seen.has(slot))
-          return { ok: false, error: `快捷键冲突：${seen.get(slot)} 与「${a.label}」都占用 ${slot}` };
-        seen.set(slot, a.label);
+          return { ok: false, error: `快捷键冲突：${seen.get(slot)} 与「${e.name}」都占用 ${slot}` };
+        seen.set(slot, e.name);
       }
     }
   }
 
   // 全部校验通过后再写，避免中途失败造成半应用状态
-  if ('theme' in obj) applyTheme(obj.theme);
-  if ('skin' in obj) setActiveSkin(obj.skin);
+  if ('themeColor' in obj) applyThemeColor(obj.themeColor);
+  if ('themeStyle' in obj) setActiveThemeStyle(obj.themeStyle);
   if ('shortcuts' in obj) {
     const normalized = Object.fromEntries(SHORTCUT_ACTIONS.map(a => [a.id, String(obj.shortcuts[a.id]).trim()]));
+    for (const [key, combo] of Object.entries(obj.shortcuts)) {
+      if (key.startsWith('ext:')) normalized[key] = String(combo).trim();
+    }
     store.set('shortcuts', normalized);
     bus.emit('shortcuts');
   }
@@ -374,8 +389,8 @@ function accountView() {
 function generalView() {
   return [
     shortcutView(),
-    ...skinView(),
-    ...themeView(),
+    ...themeStyleView(),
+    ...themeColorView(),
   ];
 }
 
@@ -385,36 +400,118 @@ let recordingCleanup = null;
 
 function shortcutView() {
   const sc = getShortcuts();
-  const rows = SHORTCUT_ACTIONS.map(action => {
-    const combo = sc[action.id];
-    const recording = recordingId === action.id;
-    const keyBtn = el('button', {
+  const extSc = getExtShortcuts();
+  const extName = id => registry.get(id)?.name || id;
+
+  // 按键本身就是编辑入口，不再需要旁边的铅笔按钮
+  const keyBtn = (id, label, combo) => {
+    const recording = recordingId === id;
+    return el('button', {
       class: 'hk-key' + (recording ? ' recording' : ''),
       'data-recording': recording ? '1' : null,
       'aria-label': recording
-        ? `正在录制「${action.label}」快捷键，按 Esc 取消`
-        : `修改「${action.label}」快捷键，当前 ${formatShortcut(combo)}`,
-      onclick: () => startRecording(action.id),
+        ? `正在录制「${label}」快捷键，按 Esc 取消`
+        : `修改「${label}」快捷键，当前 ${formatShortcut(combo)}`,
+      onclick: () => startRecording(id),
     }, recording ? '按下快捷键…' : formatShortcut(combo));
-    return el('div', { class: 'hk-row' },
+  };
+  const extLabel = id => el('span', { class: 'hk-name' },
+    el('span', { class: 'hk-ext-tag' }, '扩展'), extName(id));
+
+  const builtinRows = SHORTCUT_ACTIONS.map(action =>
+    el('div', { class: 'hk-row' },
       el('span', { class: 'hk-name' }, action.label),
-      el('span', { class: 'hk-combo' }, keyBtn),
+      el('span', { class: 'hk-combo' }, keyBtn(action.id, action.label, sc[action.id]))));
+
+  const extRows = Object.entries(extSc).map(([extId, combo]) =>
+    el('div', { class: 'hk-row' },
+      extLabel(extId),
+      el('span', { class: 'hk-combo' }, keyBtn('ext:' + extId, extName(extId), combo)),
       el('button', {
-        class: 'icon-btn hk-edit', title: '修改快捷键', 'aria-label': `修改「${action.label}」快捷键`,
-        onclick: () => startRecording(action.id),
-      }, el('span', { class: 'icon', html: icons.edit })));
-  });
+        class: 'icon-btn hk-remove', title: '移除快捷键',
+        'aria-label': `移除「${extName(extId)}」的快捷键`,
+        onclick: () => { removeExtShortcut(extId); toast('已移除：' + extName(extId)); bus.emit('route'); },
+      }, el('span', { class: 'icon', html: icons.trash }))));
 
-  const resetBtn = el('button', {
-    class: 'btn hk-reset',
-    onclick: () => { resetShortcuts(); toast('快捷键已恢复默认'); bus.emit('route'); },
-  }, el('span', { class: 'icon', html: icons.back }), '恢复默认');
+  // 弹窗选完扩展、尚未录制：先出一行占位，按 Esc 即消失
+  const pendingExt = recordingId?.startsWith('ext:') ? recordingId.slice(4) : null;
+  const pendingRow = pendingExt && !extSc[pendingExt]
+    ? el('div', { class: 'hk-row' },
+        extLabel(pendingExt),
+        el('span', { class: 'hk-combo' }, keyBtn(recordingId, extName(pendingExt), '')))
+    : null;
+  const emptyHint = !extRows.length && !pendingRow
+    ? el('p', { class: 'hint hk-empty' }, '还没有扩展快捷键。点「添加扩展快捷键」为当前界面的扩展绑定按键。')
+    : null;
 
-  return cardFor('shortcuts', '快捷键',
-    el('div', { class: 'hk-list' }, ...rows),
+  const addBtn = el('button', { class: 'btn hk-add', onclick: askAddExtShortcut },
+    el('span', { class: 'icon', html: icons.plus }), '添加扩展快捷键');
+  const resetBtn = el('button', { class: 'btn hk-reset', onclick: askResetShortcuts },
+    el('span', { class: 'icon', html: icons.back }), '恢复默认');
+
+  const section = cardFor('shortcuts', '快捷键',
+    el('div', { class: 'hk-list' }, ...builtinRows, ...extRows, pendingRow, emptyHint),
     el('div', { class: 'hk-foot' },
-      el('p', { class: 'hint' }, '点击按键修改；按 Esc 取消录制。输入时切换类快捷键自动让位。'),
-      resetBtn));
+      el('p', { class: 'hint' }, '点击按键修改；按 Esc 取消录制。输入文字时快捷键自动让位。'),
+      addBtn));
+  section.classList.add('setg-card-with-action');
+  section.querySelector('.panel-head').append(resetBtn);
+  return section;
+}
+
+/** 恢复默认：有自定义扩展快捷键时先询问是否一并删除 */
+function askResetShortcuts() {
+  const count = Object.keys(getExtShortcuts()).length;
+  const finish = (clearExt, message) => {
+    resetShortcuts({ keepExt: !clearExt });
+    toast(message);
+    bus.emit('route');
+  };
+  if (!count) {
+    finish(true, '快捷键已恢复默认');
+    return;
+  }
+  openModal('恢复默认快捷键',
+    el('div', { class: 'hk-reset-desc' },
+      el('p', { class: 'hint' }, '内置快捷键将恢复为「⌘ / Ctrl + ,」与「Esc」。'),
+      el('p', { class: 'hint' }, `当前有 ${count} 个已添加的扩展快捷键，是否一并删除？`)),
+    [
+      { label: '取消' },
+      { label: '一并删除', danger: true, onClick: close => {
+        close(); finish(true, '快捷键已恢复默认，扩展快捷键已删除');
+      } },
+      { label: '保留扩展快捷键', primary: true, onClick: close => {
+        close(); finish(false, '内置快捷键已恢复默认，扩展快捷键已保留');
+      } },
+    ]);
+}
+
+/** 弹窗选择当前主题风格下已添加且可用的扩展，选中后进入快捷键录制 */
+function askAddExtShortcut() {
+  const bound = getExtShortcuts();
+  const candidates = shortcutExtCandidates().filter(ext => !bound[ext.id]);
+  if (!candidates.length) {
+    toast('当前界面没有可添加快捷键的扩展，请先在扩展中心启用');
+    return;
+  }
+  let picked = candidates[0].id;
+  const list = el('div', { class: 'hk-pick-list' }, ...candidates.map(ext => {
+    const radio = el('input', { type: 'radio', name: 'hk-ext', value: ext.id });
+    radio.checked = ext.id === picked;
+    radio.addEventListener('change', () => { if (radio.checked) picked = ext.id; });
+    return el('label', { class: 'hk-pick-row' },
+      radio,
+      el('span', { class: 'hk-pick-name' }, ext.name),
+      el('span', { class: 'hk-pick-id mono' }, ext.id));
+  }));
+  openModal('添加扩展快捷键',
+    el('div', {},
+      el('p', { class: 'hint hk-pick-hint' }, '选择扩展后，为它按下一个快捷键：'),
+      list),
+    [{ label: '取消' }, { label: '下一步', primary: true, onClick: close => {
+      close();
+      startRecording('ext:' + picked);
+    } }]);
 }
 
 function stopRecording() {
@@ -432,7 +529,9 @@ function startRecording(id) {
     const combo = comboFromEvent(event);
     if (!combo) return; // 纯修饰键，继续等待
     stopRecording();
-    const result = setShortcut(id, combo);
+    const result = id.startsWith('ext:')
+      ? setExtShortcut(id.slice(4), combo)
+      : setShortcut(id, combo);
     if (!result.ok) toast(result.error);
     else toast(`已设置：${formatShortcut(combo)}`);
     bus.emit('route');
@@ -443,61 +542,61 @@ function startRecording(id) {
   bus.emit('route'); // 重绘进入录制态
 }
 
-function skinView() {
-  const activeSkin = getActiveSkin();
-  const skinCards = el('div', { class: 'skin-cards' },
-    getAllSkins().map(skin => {
+function themeStyleView() {
+  const activeThemeStyle = getActiveThemeStyle();
+  const themeStyleCards = el('div', { class: 'theme-style-cards' },
+    getAllThemeStyles().map(themeStyle => {
       const activate = () => {
-        setActiveSkin(skin.id);
+        setActiveThemeStyle(themeStyle.id);
         router.go('settings');
-        toast(`已切换：${skin.name}`);
+        toast(`已切换：${themeStyle.name}`);
       };
       const more = el('button', {
-        class: 'skin-card-more', title: skin.name + ' 更多', 'aria-label': skin.name + ' 更多操作',
+        class: 'theme-style-card-more', title: themeStyle.name + ' 更多', 'aria-label': themeStyle.name + ' 更多操作',
         onclick: event => {
           event.stopPropagation();
           openPopMenu(event.currentTarget, [
-            { label: '查看详情', onClick: () => openSkinDetail(skin.id) },
+            { label: '查看详情', onClick: () => openThemeStyleDetail(themeStyle.id) },
             // 已是当前样式时不再提供「设为当前样式」，避免冗余操作
-            ...(activeSkin?.id === skin.id ? [] : [{ label: '设为当前界面样式', onClick: activate }]),
+            ...(activeThemeStyle?.id === themeStyle.id ? [] : [{ label: '设为当前主题风格', onClick: activate }]),
           ]);
         },
       }, el('span', { class: 'icon', html: icons.more }));
       return el('div', {
-        class: 'skin-card' + (activeSkin?.id === skin.id ? ' active' : ''),
-        role: 'button', tabindex: '0', 'aria-label': `界面样式：${skin.name}`,
+        class: 'theme-style-card' + (activeThemeStyle?.id === themeStyle.id ? ' active' : ''),
+        role: 'button', tabindex: '0', 'aria-label': `主题风格：${themeStyle.name}`,
         onclick: activate,
         onkeydown: event => {
           if (event.target !== event.currentTarget) return;
           if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); activate(); }
         },
       },
-        el('span', { class: 'icon', html: skin.icon }),
-        el('span', { class: 'skin-card-name' }, skin.name),
-        el('span', { class: 'skin-card-desc' }, skin.desc || ''),
+        el('span', { class: 'icon', html: themeStyle.icon }),
+        el('span', { class: 'theme-style-card-name' }, themeStyle.name),
+        el('span', { class: 'theme-style-card-desc' }, themeStyle.desc || ''),
         more);
     }));
   return [
-    cardFor('skin', '界面样式',
-      skinCards,
-      activeSkin?.settingsPanel ? activeSkin.settingsPanel() : null,
-      el('p', { class: 'hint' }, '点击卡片切换界面样式；卡片右上角「⋯」可查看详情与挂载点配置。')),
+    cardFor('themeStyle', '主题风格',
+      themeStyleCards,
+      activeThemeStyle?.settingsPanel ? activeThemeStyle.settingsPanel() : null,
+      el('p', { class: 'hint' }, '点击卡片切换主题风格；卡片右上角「⋯」可查看详情与挂载点配置。')),
   ];
 }
 
-function themeView() {
-  const themeButtons = el('div', { class: 'btn-line', role: 'group', 'aria-label': '主题' },
-    Object.entries(themeNames).map(([id, name]) => {
-      const active = document.body.dataset.theme === id;
+function themeColorView() {
+  const themeColorButtons = el('div', { class: 'btn-line', role: 'group', 'aria-label': '主题色' },
+    Object.entries(themeColorNames).map(([id, name]) => {
+      const active = document.body.dataset.themeColor === id;
       return el('button', {
         class: 'btn' + (active ? ' primary' : ''),
         'aria-pressed': String(active),
-        onclick: () => { applyTheme(id); router.go('settings'); },
+        onclick: () => { applyThemeColor(id); router.go('settings'); },
       }, name);
     }));
   return [
-    cardFor('theme', '主题风格', themeButtons,
-      el('p', { class: 'hint' }, '主题即时生效并持久化；跟随系统「减少动态效果」偏好自动关闭动画。')),
+    cardFor('themeColor', '主题色', themeColorButtons,
+      el('p', { class: 'hint' }, '主题色即时生效并持久化；跟随系统「减少动态效果」偏好自动关闭动画。')),
   ];
 }
 
@@ -573,7 +672,7 @@ function matchCat(cat, q) {
 function matchedKeys(q) {
   const hit = new Set();
   if (!q || !SEARCH_RULES) return hit;
-  // 优先：aliases 精确命中具体设置键（如「主题」→ theme）
+  // 优先：aliases 精确命中具体设置键（如「主题色」→ themeColor）
   for (const [key, rule] of Object.entries(SEARCH_RULES)) {
     if (key.startsWith('$') || !rule || typeof rule !== 'object') continue;
     if ((rule.aliases || []).some(a => String(a).toLowerCase().includes(q))) hit.add(key);
@@ -599,22 +698,39 @@ function visibleCats() {
 /* ============================================================
    源码视图（VSCode 式 settings.json 编辑器）
    ============================================================ */
+let viewToggleEl = null;
+
+/** 顶栏单图标按钮：图标表示当前视图，点击在界面 / 源码间切换 */
 function viewToggle() {
-  const mk = (mode, label, icon) => el('button', {
-    class: 'seg-btn' + (viewMode === mode ? ' active' : ''),
-    'aria-pressed': String(viewMode === mode),
+  viewToggleEl = el('button', {
+    type: 'button', class: 'icon-btn setg-view-toggle',
     onclick: () => {
-      if (viewMode === mode) return;
-      // 进入源码视图时按当前文件重新序列化，保证两个视图同步
-      if (mode === 'source') sourceText = sourceFile === 'search' ? serializeSearchRules() : serializeSettings();
-      if (mode === 'visual') sourceError = '';
-      viewMode = mode;
-      bus.emit('route');
+      const next = viewMode === 'visual' ? 'source' : 'visual';
+      const proceed = () => {
+        // 进入源码视图时按当前生效设置重建两份文本，保证两个视图同步
+        if (next === 'source') syncSourceFromLive();
+        else sourceError = '';
+        viewMode = next;
+        bus.emit('route');
+      };
+      const verdict = guardUnappliedNavigation();
+      if (verdict === true) proceed();
+      else verdict.then(ok => { if (ok) proceed(); });
     },
-  }, el('span', { class: 'icon', html: icon }), label);
-  return el('div', { class: 'seg', role: 'group', 'aria-label': '设置视图' },
-    mk('visual', '界面', icons.settings),
-    mk('source', '源码', icons.braces));
+  });
+  syncViewToggle();
+  return viewToggleEl;
+}
+
+/** 搜索输入等局部刷新不走路由，这里同步顶栏按钮的图标、提示与选中态 */
+function syncViewToggle() {
+  if (!viewToggleEl) return;
+  const isSource = viewMode === 'source';
+  const label = isSource ? '切换到界面视图' : '切换到源码视图';
+  viewToggleEl.replaceChildren(el('span', { class: 'icon', html: isSource ? icons.braces : icons.settings }));
+  viewToggleEl.title = label;
+  viewToggleEl.setAttribute('aria-label', label);
+  viewToggleEl.setAttribute('aria-pressed', String(isSource));
 }
 
 const SOURCE_FILES = [
@@ -623,78 +739,180 @@ const SOURCE_FILES = [
 ];
 const sourceFileOf = () => SOURCE_FILES.find(f => f.id === sourceFile) || SOURCE_FILES[0];
 
+/** 某份配置是否有尚未应用的编辑 */
+const sourceDirty = id => sourceDraft[id] !== sourceApplied[id];
+
+/** 从当前生效设置重建两份文本；进入源码视图时调用，未应用的草稿不再保留 */
+function syncSourceFromLive() {
+  sourceDraft.settings = sourceApplied.settings = serializeSettings();
+  sourceDraft.search = sourceApplied.search = serializeSearchRules();
+  sourceError = '';
+}
+
+/** 校验并应用指定文件的编辑文本；返回是否成功，重绘由调用方决定 */
+function applySource(id) {
+  const file = SOURCE_FILES.find(f => f.id === id) || SOURCE_FILES[0];
+  let obj;
+  try { obj = JSON.parse(sourceDraft[id]); }
+  catch (e) { sourceError = `JSON 语法错误：${e.message}`; return false; }
+  const res = file.apply(obj);
+  if (!res.ok) { sourceError = res.error; return false; }
+  const text = file.serialize();
+  sourceDraft[id] = text;
+  sourceApplied[id] = text;
+  return true;
+}
+
+/** 格式化当前 JSON 草稿：2 空格缩进；解析失败时显示错误，不改动草稿。 */
+function formatCurrentSource() {
+  let obj;
+  try { obj = JSON.parse(sourceDraft[sourceFile]); }
+  catch (e) {
+    sourceError = `JSON 语法错误：${e.message}`;
+    bus.emit('route');
+    toast('格式化失败：JSON 语法错误');
+    return false;
+  }
+  const text = JSON.stringify(obj, null, 2);
+  sourceDraft[sourceFile] = text;
+  const editor = document.querySelector('.setg-source-editor');
+  if (editor) editor.value = text;
+  sourceError = '';
+  document.querySelector('.setg-source-error')?.remove();
+  syncSourceDirtyUI();
+  toast('已格式化');
+  return true;
+}
+
+/** 应用当前文件；失败时留在页面显示错误 */
+function applyCurrentSource() {
+  const name = sourceFileOf().name;
+  const ok = applySource(sourceFile);
+  if (ok) { sourceError = ''; toast(`${name} 已应用并生效`); }
+  bus.emit('route');
+  return ok;
+}
+
+/** 离开前一次性应用所有脏文件；失败时保留草稿并返回 false */
+function applyAllSources() {
+  const ids = SOURCE_FILES.filter(f => sourceDirty(f.id)).map(f => f.id);
+  if (!ids.every(id => applySource(id))) { bus.emit('route'); return false; }
+  sourceError = '';
+  toast('设置已应用并生效');
+  bus.emit('route');
+  return true;
+}
+
+registerUnappliedGuard({
+  isActive: () => router.extId === 'settings' && viewMode === 'source',
+  isDirty: () => SOURCE_FILES.some(f => sourceDirty(f.id)),
+  apply: applyAllSources,
+  discard: () => { sourceDraft = { ...sourceApplied }; sourceError = ''; },
+});
+
+/** 输入时不重绘（保住焦点与光标），只在现有 DOM 上同步未应用状态 */
+function syncSourceDirtyUI() {
+  const dirty = sourceDirty(sourceFile);
+  document.querySelectorAll('.setg-source-apply').forEach(btn => { btn.disabled = !dirty; });
+  document.querySelectorAll('.setg-source-state').forEach(node => node.classList.toggle('dirty', dirty));
+  document.querySelectorAll('.setg-source-state-text').forEach(node => {
+    node.textContent = dirty ? '有未应用的更改' : '已与当前设置同步';
+  });
+  document.querySelectorAll('.setg-source-filetab').forEach(tab => {
+    const tabDirty = sourceDirty(tab.dataset.file);
+    tab.classList.toggle('dirty', tabDirty);
+    const dot = tab.querySelector('.setg-source-dot');
+    if (tabDirty && !dot) tab.append(el('span', { class: 'setg-source-dot', title: '有未应用的更改' }));
+    if (!tabDirty && dot) dot.remove();
+  });
+}
+
 function sourceView() {
   const file = sourceFileOf();
-  // 注意：输入时只更新变量、不重绘，否则 textarea 会重建导致焦点/光标丢失
+  // 注意：输入时只更新草稿、不重绘，否则 textarea 会重建导致焦点/光标丢失
   const editor = el('textarea', {
     class: 'setg-source-editor',
     spellcheck: 'false',
     'aria-label': file.name + ' 源码',
   });
-  editor.value = sourceText;
-  editor.addEventListener('input', () => { sourceText = editor.value; });
+  editor.value = sourceDraft[sourceFile];
+  editor.addEventListener('input', () => {
+    sourceDraft[sourceFile] = editor.value;
+    if (sourceError) {
+      sourceError = '';
+      document.querySelector('.setg-source-error')?.remove();
+    }
+    syncSourceDirtyUI();
+  });
+  editor.addEventListener('keydown', event => {
+    if (event.key === 'Enter' && (event.metaKey || event.ctrlKey)) {
+      event.preventDefault();
+      if (sourceDirty(sourceFile)) applyCurrentSource();
+    }
+  });
 
   const resetBtn = el('button', {
     class: 'btn',
     onclick: () => {
-      sourceText = file.def();
+      sourceDraft[sourceFile] = file.def();
       sourceError = '';
       bus.emit('route');
-      toast('已载入文件默认配置，点击「保存」生效');
+      toast('已载入文件默认配置，点击「应用」生效');
     },
   }, el('span', { class: 'icon', html: icons.back }), '载入默认');
+
+  const formatBtn = el('button', {
+    class: 'btn',
+    title: '将当前 JSON 格式化为 2 空格缩进',
+    onclick: formatCurrentSource,
+  }, el('span', { class: 'icon', html: icons.braces }), '格式化');
 
   const copyBtn = el('button', {
     class: 'btn',
     onclick: async () => {
-      try { await navigator.clipboard.writeText(sourceText); toast(`已复制 ${file.name}`); }
+      try { await navigator.clipboard.writeText(sourceDraft[sourceFile]); toast(`已复制 ${file.name}`); }
       catch { toast('复制失败，请手动选择文本'); }
     },
   }, el('span', { class: 'icon', html: icons.copy }), '复制');
 
-  const saveBtn = el('button', {
-    class: 'btn primary',
-    onclick: () => {
-      let obj;
-      try { obj = JSON.parse(sourceText); }
-      catch (e) { sourceError = `JSON 语法错误：${e.message}`; bus.emit('route'); return; }
-      const res = file.apply(obj);
-      if (!res.ok) { sourceError = res.error; bus.emit('route'); return; }
-      sourceError = '';
-      sourceText = file.serialize(); // 保存后回写规范化文本
-      toast(`${file.name} 已保存并生效`);
-      bus.emit('route');
-    },
-  }, el('span', { class: 'icon', html: icons.check }), '保存');
+  const applyBtn = el('button', {
+    class: 'btn primary setg-source-apply',
+    disabled: !sourceDirty(sourceFile),
+    title: '校验并应用当前文件的更改',
+    onclick: applyCurrentSource,
+  }, el('span', { class: 'icon', html: icons.check }), '应用');
 
-  // 文件切换：settings.json / settings.search.json
+  // 文件切换：settings.json / settings.search.json；各文件的未应用草稿分别保留
   const fileTabs = el('div', { class: 'setg-source-files', role: 'tablist', 'aria-label': '配置文件' },
     ...SOURCE_FILES.map(f => el('button', {
-      class: 'setg-source-filetab' + (sourceFile === f.id ? ' active' : ''),
+      class: 'setg-source-filetab'
+        + (sourceFile === f.id ? ' active' : '')
+        + (sourceDirty(f.id) ? ' dirty' : ''),
+      'data-file': f.id,
       role: 'tab', 'aria-selected': String(sourceFile === f.id),
-      title: f.desc,
+      title: f.desc + (sourceDirty(f.id) ? '（有未应用的更改）' : ''),
       onclick: () => {
         if (sourceFile === f.id) return;
         sourceFile = f.id;
-        sourceText = f.serialize();
         sourceError = '';
         bus.emit('route');
       },
-    }, f.name)));
+    }, el('span', { class: 'icon', html: icons.braces }), f.name,
+      sourceDirty(f.id) ? el('span', { class: 'setg-source-dot', title: '有未应用的更改' }) : null)));
 
   return el('div', { class: 'setg-source' },
-    el('div', { class: 'setg-source-bar' },
-      el('div', { class: 'setg-source-file' },
-        el('span', { class: 'icon', html: icons.braces }),
-        el('span', {}, file.name),
-        el('span', { class: 'tag' }, file.desc)),
-      el('div', { class: 'setg-source-actions' }, resetBtn, copyBtn, saveBtn)),
     fileTabs,
+    el('div', { class: 'setg-source-bar' },
+      el('div', { class: 'setg-source-state' + (sourceDirty(sourceFile) ? ' dirty' : '') },
+        el('span', { class: 'setg-source-state-dot' }),
+        el('span', { class: 'setg-source-state-text' },
+          sourceDirty(sourceFile) ? '有未应用的更改' : '已与当前设置同步')),
+      el('div', { class: 'setg-source-actions' }, formatBtn, resetBtn, copyBtn, applyBtn)),
     editor,
     sourceError ? el('div', { class: 'setg-source-error', role: 'alert' }, sourceError) : null,
     el('p', { class: 'hint' }, sourceFile === 'search'
-      ? '搜索规则与 settings.json 的键对应：aliases 为匹配词（如 theme / style / 风格 / 主题），category 为命中后高亮的分类。保存后立即生效并覆盖文件默认。'
-      : '与界面双向同步：此处保存后立即生效；界面修改在切回源码时同步。修改保存在本地（localStorage），settings.json 为默认模板。'));
+      ? '搜索规则与 settings.json 的键对应：aliases 为匹配词（如 themeColor / style / 风格 / 主题色），category 为命中后高亮的分类。编辑后点击「应用」（或按 ⌘/Ctrl + Enter）才保存并生效。'
+      : '与界面双向同步：此处编辑后点击「应用」（或按 ⌘/Ctrl + Enter）才生效；界面修改在切回源码时同步。修改保存在本地（localStorage），settings.json 为默认模板。'));
 }
 
 /* ============================================================
@@ -705,7 +923,13 @@ registerSystemPage('settings', () => {
   const navItems = (cats, current) => cats.map(cat => el('button', {
     class: 'setg-nav-item' + (current === cat.id ? ' active' : ''),
     'aria-current': current === cat.id ? 'page' : null,
-    onclick: () => { activeCat = cat.id; viewMode = 'visual'; bus.emit('route'); },
+    onclick: () => {
+      const category = cat.id;
+      const proceed = () => { activeCat = category; viewMode = 'visual'; bus.emit('route'); };
+      const verdict = guardUnappliedNavigation();
+      if (verdict === true) proceed();
+      else verdict.then(ok => { if (ok) proceed(); });
+    },
   },
     el('span', { class: 'icon', html: cat.icon }),
     el('span', { class: 'setg-nav-name' }, cat.name)));
@@ -732,9 +956,8 @@ registerSystemPage('settings', () => {
         el('div', {},
           el('h2', {}, viewMode === 'source' ? '设置源码' : cat.name),
           el('span', { class: 'setg-content-desc' },
-            viewMode === 'source' ? `${sourceFileOf().name} · 与界面双向同步`
-              : (q && hits.size ? `已高亮 ${hits.size} 项匹配设置` : cat.desc))),
-        viewToggle()),
+            viewMode === 'source' ? '编辑配置源码 · 修改后点击「应用」生效'
+              : (q && hits.size ? `已高亮 ${hits.size} 项匹配设置` : cat.desc)))),
       viewMode === 'source'
         ? sourceView()
         : (q && !cats.length
@@ -752,7 +975,7 @@ registerSystemPage('settings', () => {
 
   const searchInput = el('input', {
     type: 'search', class: 'input setg-search',
-    placeholder: '搜索设置（如：主题、theme、界面样式、快捷键）',
+    placeholder: '搜索设置（如：主题色、themeColor、主题风格、快捷键）',
     'aria-label': '搜索设置',
     value: query,
   });
@@ -785,6 +1008,7 @@ registerSystemPage('settings', () => {
   searchInput.addEventListener('input', () => {
     query = searchInput.value;
     viewMode = 'visual'; // 搜索即回到可视化结果
+    syncViewToggle();    // 顶栏控件不随内容区重建，需单独同步
     refresh();           // 局部刷新，保住焦点与 IME
   });
 
@@ -793,10 +1017,17 @@ registerSystemPage('settings', () => {
     el('div', { class: 'setg-side-title' }, '设置分类'),
     navHost);
 
+  // 源码视图专注编辑配置：隐藏左侧搜索/分类栏，编辑区占满宽度（顶栏切换仍可用）
+  const isSource = viewMode === 'source';
+  const layout = el('div', { class: 'setg-layout' + (isSource ? ' source-mode' : '') },
+    ...(isSource ? [] : [sidebar]), contentHost);
+
   // 返回与标题已上移到顶栏（见 core.syncSystemTopBar），内容区不再重复渲染
-  return el('div', { class: 'page setg-page' },
-    el('div', { class: 'setg-layout' }, sidebar, contentHost));
-}, { title: '设置', backLabel: '返回工作台', back: () => leaveSystem() });
+  return el('div', { class: 'page setg-page' }, layout);
+}, {
+  title: '设置', backLabel: '返回工作台', back: () => leaveSystem(),
+  topActions: () => viewToggle(),
+});
 
 /** 供外部进入设置并定位到某分类（保留以供扩展中心/关于页跳转） */
 export function openSettings(category) {

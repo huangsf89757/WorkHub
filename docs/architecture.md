@@ -2,7 +2,7 @@
 
 > ADR-003 · 本轮架构优化产物 · 2026-11-23
 > 状态：已接受 · 替代 v1 的三区 + 占位扩展模型
-> 修订：2026-11-23 增补"界面样式（Skin）"第二扩展维度（ADR-004）
+> 修订：2026-11-23 增补"主题风格（ThemeStyle）"第二扩展维度（ADR-004）
 
 ## 1. 本轮变更摘要
 
@@ -15,7 +15,7 @@
 | 同步 | 无 | **sync 引擎**（outbox 落库 / HLC 时间戳 / LWW / 墓碑清理 / pull 合并）+ 已落地的 Supabase CloudAdapter（无配置时 no-op） |
 | 平台 | 浏览器单一 | **platform 适配层**：Web/PWA/Electron/Tauri/Capacitor |
 | 系统页面 | 混在 ext-*.js | pages.js 独立，属于内核 |
-| **界面样式** | 单一分栏 + 主题色切换 | **界面样式（Skin）第二扩展维度**：分栏为默认界面样式，3D 工作室等样式以扩展实现，实物挂载扩展 |
+| **主题风格** | 单一分栏 + 主题色切换 | **主题风格（ThemeStyle）第二扩展维度**：分栏为默认主题风格，3D 工作室等样式以扩展实现，实物挂载扩展 |
 
 ## 2. 目标与约束
 
@@ -53,35 +53,35 @@
 
 **设计意图**：center 独占扩展详情；四边侧栏只挂扩展入口（launcher），不渲染详情内容。窄屏（<900px）自动隐藏 right，<760px 时 left 变抽屉。
 
-## 3.5 界面样式（Skin）——第二扩展维度
+## 3.5 主题风格（ThemeStyle）——第二扩展维度
 
 > ADR-004 · UI 样式本身也是扩展，与业务功能扩展正交。
 
 **动机**：五区布局是"信息密度优先"的默认样式，但某些场景需要完全不同的界面隐喻（如 3D 爱好者想要一间工作室，把功能挂到场景实物上）。与其在内核里写一堆 `if (style === '3d')`，不如把"主舞台怎么渲染"抽象成第二个扩展点。
 
-**界面样式契约**（`registerSkin`，与业务 `registry` 分离）：
+**主题风格契约**（`registerThemeStyle`，与业务 `registry` 分离）：
 
 | 字段 | 说明 |
 |---|---|
 | `id / name / icon / desc` | 元数据，用于设置页卡片展示 |
-| `layout` | `'panels'`（默认五区）或 `'stage'`（界面样式完全接管 center 舞台） |
-| `renderStage(ctx)` | stage 界面样式提供，返回主舞台 DOM 节点 |
+| `layout` | `'panels'`（默认五区）或 `'stage'`（主题风格完全接管 center 舞台） |
+| `renderStage(ctx)` | stage 主题风格提供，返回主舞台 DOM 节点 |
 | `mountPoints` | 挂载点列表 `[{id,name,desc,role?,icon?,defaultExt?}]`；panels 为五区（含 `left-bottom` 共 6 项），stage 为场景实物；未声明时 panels 回落五区，`resolveMount()` 按「用户配置 → `defaultExt`」解析 |
-| `configureMounts()` | 可选，界面样式的挂载配置入口；扩展中心点击扩展的挂载标签时调用（未提供则走经典五区 picker） |
-| `settingsPanel()` | 可选，界面样式专属设置面板，嵌入设置页 |
+| `configureMounts()` | 可选，主题风格的挂载配置入口；扩展中心点击扩展的挂载标签时调用（未提供则走经典五区 picker） |
+| `settingsPanel()` | 可选，主题风格专属设置面板，嵌入设置页 |
 
-**已实现界面样式**：
-- `skin-classic.js`（layout=panels）：经典分栏，内核默认 baseline；声明五区为挂载点
-- `skin-studio3d.js`（layout=stage）：3D 工作室——纯 CSS 3D 房间，桌子/电脑/宠物/小人/书架/工具箱是挂载点
+**已实现主题风格**：
+- `theme-style-classic.js`（layout=panels）：经典分栏，内核默认 baseline；声明五区为挂载点
+- `theme-style-studio3d.js`（layout=stage）：3D 工作室——纯 CSS 3D 房间，桌子/电脑/宠物/小人/书架/工具箱是挂载点
 
 **实物挂载机制**：
-- 挂载配置 `skinMounts[skinId][pointId] = extId`，存系统偏好（localStorage），数据驱动、可视化配置
-- `resolveMount()` 解析：优先用户配置，回落界面样式 `defaultExt`
-- 点击实物 → `router.go(extId)`：已安装扩展/系统页真实打开；规划中扩展显示友好占位；stage 界面样式下所有子视图带统一"返回舞台"条（`router.back()`）
-- 配置入口：设置页 → 界面样式 → 当前界面样式专属设置面板；扩展中心点击扩展的挂载标签（stage 走 `configureMounts()`，panels 走 `placementPicker()`）
-- **扩展中心随界面样式联动**：`getSkinMountPoints()` 提供当前界面样式挂载点，`mountLabelOfExt()` 解析每个扩展位于哪个挂载点——经典分栏显示「左侧 · 主菜单」，3D 工作室显示「电脑 · 3D 工作室」；底部挂载点卡片列表也来自当前界面样式声明，不再写死五区
+- 挂载配置 `themeStyleMounts[themeStyleId][pointId] = extId`，存系统偏好（localStorage），数据驱动、可视化配置
+- `resolveMount()` 解析：优先用户配置，回落主题风格 `defaultExt`
+- 点击实物 → `router.go(extId)`：已安装扩展/系统页真实打开；规划中扩展显示友好占位；stage 主题风格下所有子视图带统一"返回舞台"条（`router.back()`）
+- 配置入口：设置页 → 主题风格 → 当前主题风格专属设置面板；扩展中心点击扩展的挂载标签（stage 走 `configureMounts()`，panels 走 `placementPicker()`）
+- **扩展中心随主题风格联动**：`getThemeStyleMountPoints()` 提供当前主题风格挂载点，`mountLabelOfExt()` 解析每个扩展位于哪个挂载点——经典分栏显示「左侧 · 主菜单」，3D 工作室显示「电脑 · 3D 工作室」；底部挂载点卡片列表也来自当前主题风格声明，不再写死五区
 
-**隔离保证**：界面样式只影响 center 舞台与五区显隐（`body[data-skin-layout="stage"]` CSS 隐藏 left/right），不碰数据层、同步、路由语义。切换界面样式不改任何业务数据。
+**隔离保证**：主题风格只影响 center 舞台与五区显隐（`body[data-theme-style-layout="stage"]` CSS 隐藏 left/right），不碰数据层、同步、路由语义。切换主题风格不改任何业务数据。
 
 ## 4. 分层架构
 
@@ -109,7 +109,7 @@
 - `registry`：扩展注册表，按 order 排序
 - `router`：内存路由 `{extId, mode: home|detail, id}` + hash 映射（见 4.3）
 - `bus`：事件总线（`route` / `data` / `tick` / `sync:*`）
-- `store`：系统偏好（主题、布局、启用开关），key 前缀 `wh_`
+- `store`：系统偏好（主题色、布局、启用开关），key 前缀 `wh_`
 - `el()`：DOM 构建器，杜绝 innerHTML 注入
 - 五区渲染：`renderLeft / renderTop / renderCenter / renderRight / renderBottom`
 - 扩展契约（钩子全部可选）：
@@ -234,7 +234,7 @@
 | 变更 | 原因 |
 |---|---|
 | 删除 9 张未实现的扩展表（projects/tasks/snippets/complaints/notes/posts/learning） | 建了表却无扩展读写，属空壳；扩展需要时用 `declareDomain(table)` 自带表 |
-| 删除 `sys_ext_mounts` / `sys_ext_kv` | 挂载配置已归 `store.skinMounts`（偏好）；扩展数据归扩展自有表 |
+| 删除 `sys_ext_mounts` / `sys_ext_kv` | 挂载配置已归 `store.themeStyleMounts`（偏好）；扩展数据归扩展自有表 |
 | 删除 `sys_households` / `sys_memberships` 与 meta 归属字段 | 组织结构未定，家庭模型过度预设；待通用组织结构设计（ADR-005 撤销） |
 | `sys_schema_version` 改单行约束；`sys_outbox` 去 `pushed` | 修复版本行累积缺陷；删除恒为 0 的死列 |
 

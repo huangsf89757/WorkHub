@@ -105,14 +105,14 @@
 | P1 | 本地用户身份 | `identity.js` 当前用户（默认 me） | ✅ 已就绪 |
 | P3 | 通用组织结构 | 组织/团队/空间层级 + 可见性模型（家庭模型已撤销，待重新设计，ADR-005） | ⬜ |
 
-## 界面样式扩展（第二扩展维度）
+## 主题风格扩展（第二扩展维度）
 
-> UI 样式本身也是扩展。界面样式注册表见 `core.js` 的 `skinRegistry`；新增界面样式新建 `js/skin-<id>.js` 并在 `main.js` import。
+> UI 样式本身也是扩展。主题风格注册表见 `core.js` 的 `themeStyleRegistry`；新增主题风格新建 `js/theme-style-<id>.js` 并在 `main.js` import。
 
-| 界面样式 ID | 名称 | 布局 | 状态 | 说明 | 文档 |
+| 主题风格 ID | 名称 | 布局 | 状态 | 说明 | 文档 |
 |---|---|---|---|---|---|
-| `classic` | 经典分栏 | panels | ✅ 已实现 | 默认 baseline，五区布局 | [skins/classic.md](docs/skins/classic.md) |
-| `studio3d` | 3D 工作室 | stage | ✅ 已实现 | 纯 CSS 3D 房间，6 个实物挂载点（桌子/电脑/宠物/小人/书架/工具箱），可配置每个实物绑定的扩展 | [skins/studio3d.md](docs/skins/studio3d.md) |
+| `classic` | 经典分栏 | panels | ✅ 已实现 | 默认 baseline，五区布局 | [themeStyles/classic.md](docs/themeStyles/classic.md) |
+| `studio3d` | 3D 工作室 | stage | ✅ 已实现 | 纯 CSS 3D 房间，6 个实物挂载点（桌子/电脑/宠物/小人/书架/工具箱），可配置每个实物绑定的扩展 | [themeStyles/studio3d.md](docs/themeStyles/studio3d.md) |
 | `kanban` | 看板视图 | stage | ⬜ 规划 | 以看板列为主舞台，列即扩展挂载位 |
 | `terminal` | 终端视图 | stage | ⬜ 规划 | 命令行风格主舞台，命令映射扩展 |
 | `focus` | 专注模式 | stage | ⬜ 规划 | 极简单任务舞台，适合手机窄屏 |
@@ -132,10 +132,10 @@
 5. 在 `js/main.js` 顶部 import 一次即完成接入
 6. 更新本文件状态为 ✅，并从 `js/features.js` 移除或标记
 
-## 新增界面样式的约定
+## 新增主题风格的约定
 
-1. 新建 `js/skin-<id>.js`，从 `core.js` 引入 `registerSkin` 等
-2. 用 `registerSkin({ id, name, icon, desc, layout, ... })` 自注册
+1. 新建 `js/theme-style-<id>.js`，从 `core.js` 引入 `registerThemeStyle` 等
+2. 用 `registerThemeStyle({ id, name, icon, desc, layout, ... })` 自注册
 3. `layout:'panels'` 不接管舞台；`layout:'stage'` 需实现 `renderStage(ctx)` 返回主舞台 DOM
 4. 若舞台含挂载点，声明 `mountPoints`（每个点给 `id/name/defaultExt`），点击时 `router.go(resolveMount(...))`
 5. 可选 `settingsPanel()` 返回专属设置面板 DOM，自动嵌入设置页

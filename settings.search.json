@@ -1,15 +1,15 @@
 {
   "$schema": "search-rules",
   "$comment": "设置搜索规则：key 与 settings.json / store 偏好键一一对应。aliases 为匹配词，category 为命中后高亮的设置分类，label 为展示名。",
-  "theme": {
-    "aliases": ["theme", "style", "风格", "主题", "配色", "颜色", "深色", "浅色", "终端", "oled", "dark", "light", "terminal"],
+  "themeColor": {
+    "aliases": ["themeColor", "theme", "配色", "颜色", "主题色", "深色", "浅色", "终端", "oled", "dark", "light", "terminal"],
+    "category": "general",
+    "label": "主题色"
+  },
+  "themeStyle": {
+    "aliases": ["themeStyle", "skin", "style", "风格", "appearance", "界面", "样式", "主题风格", "皮肤", "布局", "分栏", "挂载点", "经典", "工作室", "classic", "studio3d", "3d"],
     "category": "general",
     "label": "主题风格"
-  },
-  "skin": {
-    "aliases": ["skin", "appearance", "界面", "样式", "皮肤", "布局", "分栏", "挂载点", "经典", "工作室", "classic", "studio3d", "3d"],
-    "category": "general",
-    "label": "界面样式"
   },
   "shortcuts": {
     "aliases": ["shortcut", "hotkey", "keyboard", "keybinding", "keymap", "bindings", "key", "快捷键", "键盘", "修改", "录制", "esc", "按键"],

@@ -142,7 +142,7 @@ test('v6→最新迁移：删除扩展表/家庭表、剥离归属 meta、outbox
   old.run(`CREATE TABLE sys_devices (id TEXT PRIMARY KEY, user_id TEXT, platform TEXT, label TEXT, first_seen INTEGER, last_seen INTEGER, meta TEXT)`);
   old.run(`CREATE TABLE sys_settings (key TEXT PRIMARY KEY, value TEXT, scope TEXT DEFAULT 'user', updated_at INTEGER, updated_by TEXT, meta TEXT)`);
   old.run(`CREATE TABLE sys_extensions (id TEXT PRIMARY KEY, name TEXT, enabled INTEGER DEFAULT 1, sort INTEGER DEFAULT 0, source TEXT DEFAULT 'builtin', created_at INTEGER, updated_at INTEGER, meta TEXT)`);
-  old.run(`CREATE TABLE sys_ext_mounts (id TEXT PRIMARY KEY, skin_id TEXT, point_id TEXT, ext_id TEXT, meta TEXT)`);
+  old.run(`CREATE TABLE sys_ext_mounts (id TEXT PRIMARY KEY, themeStyle_id TEXT, point_id TEXT, ext_id TEXT, meta TEXT)`);
   old.run(`CREATE TABLE sys_ext_kv (id TEXT PRIMARY KEY, ext_id TEXT, key TEXT, value TEXT)`);
   old.run(`CREATE TABLE sys_outbox (seq INTEGER PRIMARY KEY AUTOINCREMENT, domain TEXT NOT NULL, op TEXT NOT NULL, record TEXT NOT NULL, at INTEGER NOT NULL, pushed INTEGER NOT NULL DEFAULT 0)`);
   old.run(`CREATE TABLE ext_projects (id TEXT PRIMARY KEY, name TEXT)`);

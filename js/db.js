@@ -500,11 +500,20 @@ function mirrorPref({ key, value }) {
   scheduleSave();
 }
 
+/** 术语统一前的旧逻辑 key → 新逻辑 key（皮肤→主题风格、主题风格→主题色） */
+const LEGACY_PREF_KEY = Object.freeze({
+  theme: 'themeColor',
+  skin: 'themeStyle',
+  skinMounts: 'themeStyleMounts',
+  skinPoints: 'themeStylePoints',
+});
+
 /** 启动时把 settings 表回灌到 store（DB 有值且本地缺失时用 DB 补本地） */
 function hydratePrefs(state) {
   if (!state) return;
   for (const row of all(`SELECT key,value FROM ${TABLES.settings}`)) {
-    const key = row.key;
+    // 老库的 key 仍是旧术语，先归一到新逻辑 key 再回灌
+    const key = LEGACY_PREF_KEY[row.key] || row.key;
     // 只回灌已知的基座偏好 key，避免污染业务域（业务域由 state 恢复）
     if (BASE_PREF_KEYS.has(key) && store.get(key) === undefined) {
       store.set(key, P(row.value)); // 会再次触发 mirrorPref，幂等写回
@@ -513,8 +522,8 @@ function hydratePrefs(state) {
 }
 
 const BASE_PREF_KEYS = new Set([
-  'theme', 'skin', 'skinMounts', 'skinPoints', 'menuLayout',
-  'extEnabled', 'rightCollapsed', 'shortcuts', 'searchRules',
+  'themeColor', 'themeStyle', 'themeStyleMounts', 'themeStylePoints', 'menuLayout',
+  'extEnabled', 'mountEnabled', 'extInstallState', 'rightCollapsed', 'shortcuts', 'searchRules',
   'leftW', 'rightW', 'bottomH', 'navCollapsed',
   'todoLastGroupId', // 新建任务上次选择的分组，随基座偏好一起回灌/镜像
 ]);

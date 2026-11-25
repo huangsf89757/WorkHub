@@ -18,7 +18,7 @@ import { exportDatabase } from './storage.js';
 export const BACKUP_FORMAT = 'workhub-backup';
 export const BACKUP_VERSION = 1;
 /** 随备份保存的界面偏好（只含小体积、与设备无关的配置） */
-export const BACKUP_PREFS = ['theme', 'skin', 'skinMounts', 'skinPoints', 'menuLayout', 'extEnabled', 'shortcuts'];
+export const BACKUP_PREFS = ['themeColor', 'themeStyle', 'themeStyleMounts', 'themeStylePoints', 'menuLayout', 'extEnabled', 'mountEnabled', 'extInstallState', 'shortcuts'];
 const DOMAIN_NAME = /^[A-Za-z][A-Za-z0-9_]{0,63}$/;
 const FORBIDDEN = new Set(['__proto__', 'constructor', 'prototype']);
 const clone = value => JSON.parse(JSON.stringify(value));

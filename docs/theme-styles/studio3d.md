@@ -1,16 +1,16 @@
-# 界面样式：3D 工作室（studio3d）
+# 主题风格：3D 工作室（studio3d）
 
 > 状态：✅ 已实现 · "UI 样式作为扩展"的示范实现
-> 实现文件：`js/skin-studio3d.js` · 注册：`main.js` 顶部 import 一次
+> 实现文件：`js/theme-style-studio3d.js` · 注册：`main.js` 顶部 import 一次
 
 ## 1. 定位
 
-把主界面变成一间等距 3D 工作室：地面 + 两面墙 + 地毯 + 桌子 + 电脑 + 宠物 + 小人 + 书架 + 工具箱。每个"实物"是一个扩展挂载点，点击实物打开它挂载的扩展。用纯 CSS 3D + SVG 实现，零依赖、零构建、跟随主题 token。
+把主界面变成一间等距 3D 工作室：地面 + 两面墙 + 地毯 + 桌子 + 电脑 + 宠物 + 小人 + 书架 + 工具箱。每个"实物"是一个扩展挂载点，点击实物打开它挂载的扩展。用纯 CSS 3D + SVG 实现，零依赖、零构建、跟随主题色 token。
 
 ## 2. 契约实现
 
 ```js
-registerSkin({
+registerThemeStyle({
   id: 'studio3d',
   name: '3D 工作室',
   layout: 'stage',        // 完全接管 center 舞台
@@ -21,7 +21,7 @@ registerSkin({
 });
 ```
 
-`layout: 'stage'` + `renderStage()`：当 `router.extId` 为空时，`core.js` 的 `renderCenter()` 调用 `renderStage(ctx)` 渲染舞台。CSS 通过 `body[data-skin-layout="stage"]` 隐藏 left/right/top-mounts，center 撑满。
+`layout: 'stage'` + `renderStage()`：当 `router.extId` 为空时，`core.js` 的 `renderCenter()` 调用 `renderStage(ctx)` 渲染舞台。CSS 通过 `body[data-theme-style-layout="stage"]` 隐藏 left/right/top-mounts，center 撑满。
 
 ## 3. 实物挂载点
 
@@ -37,22 +37,22 @@ registerSkin({
 点击实物 → `router.go(extId)`：
 - 已安装扩展/系统页 → 真实打开
 - 规划中扩展 → 内核显示"规划中 / 优先级"友好占位
-- stage 界面样式下所有子视图带统一"返回3D 工作室"条（`router.back()`）
+- stage 主题风格下所有子视图带统一"返回3D 工作室"条（`router.back()`）
 
 ## 4. 挂载配置
 
-配置模型：`skinMounts['studio3d'][pointId] = extId`，存 `localStorage['wh_sys_settings_skinMounts']`（系统偏好，与业务数据分离；旧键 `wh_skinMounts` 启动时自动迁移）。
+配置模型：`themeStyleMounts['studio3d'][pointId] = extId`，存 `localStorage['wh_sys_settings_themeStyleMounts']`（系统偏好，与业务数据分离；旧键 `wh_themeStyleMounts` 启动时自动迁移）。
 
-解析顺序（`core.js` 的 `resolveMount` / 界面样式内读取）：用户配置优先 → 回落 `defaultExt`。
+解析顺序（`core.js` 的 `resolveMount` / 主题风格内读取）：用户配置优先 → 回落 `defaultExt`。
 
 **三个配置入口：**
 1. 舞台工具栏「配置挂载」按钮 → 弹窗逐项下拉选择
-2. 设置页 → 界面样式 → 当前界面样式专属设置面板（`settingsPanel()`）→「配置」
+2. 设置页 → 主题风格 → 当前主题风格专属设置面板（`settingsPanel()`）→「配置」
 3. 扩展中心 → 已安装扩展的挂载标签（如「电脑 · 3D 工作室」）→ 调用 `configureMounts()` 打开同一弹窗
 
-扩展中心的挂载点卡片来自契约里的 `mountPoints`（即 6 个内建实物）+ 各自当前挂载的扩展名，随本界面样式切换而显示；用户在详情页新增的自定义挂载点会出现在舞台与配置弹窗中（`stageObjects()` 合并内建 + 自定义）。
+扩展中心的挂载点卡片来自契约里的 `mountPoints`（即 6 个内建实物）+ 各自当前挂载的扩展名，随本主题风格切换而显示；用户在详情页新增的自定义挂载点会出现在舞台与配置弹窗中（`stageObjects()` 合并内建 + 自定义）。
 
-弹窗三个动作：取消 / 重置默认（清空所有配置回落 defaultExt）/ 保存（逐项写 `setSkinMount`）。
+弹窗三个动作：取消 / 重置默认（清空所有配置回落 defaultExt）/ 保存（逐项写 `setThemeStyleMount`）。
 
 可选目标 = 已安装扩展 + 规划扩展（带优先级）+ 系统页（扩展中心、设置）。
 
@@ -78,17 +78,17 @@ registerSkin({
 - 地面网格线用 `linear-gradient` 绘制（功能图案，非装饰渐变）
 - 不使用 `backdrop-filter` 玻璃拟态
 - 阴影 blur 保留（阴影效果，非玻璃）
-- 颜色走 `--accent-soft / --danger-soft` 等主题 token
+- 颜色走 `--accent-soft / --danger-soft` 等主题色 token
 - 窄屏（<760px）房间缩放 `.86`、实物缩至 56px
 
 ## 7. 依赖
 
-- `core.js`：`registerSkin / getSkinMounts / setSkinMount / getPlannedFeatures / registry / router / icons / el / openModal / toast / bus / field`
+- `core.js`：`registerThemeStyle / getThemeStyleMounts / setThemeStyleMount / getPlannedFeatures / registry / router / icons / el / openModal / toast / bus / field`
 - 无数据域（不调用 `declareDomain`，纯 UI 层）
-- 切换界面样式不改任何业务数据（隔离保证）
+- 切换主题风格不改任何业务数据（隔离保证）
 
 ## 8. 已知取舍
 
 - 纯 CSS 3D 等距投影，非真实 3D 引擎；实物为几何拟物，无复杂模型
-- 内建挂载点 6 个（定义在 `OBJECTS`）；已支持在详情页运行时新增自定义挂载点（`getCustomSkinPoints()` / `addCustomSkinPoint()` + `stageObjects()`），无需改代码，但舞台坐标需合理摆放
+- 内建挂载点 6 个（定义在 `OBJECTS`）；已支持在详情页运行时新增自定义挂载点（`getCustomThemeStylePoints()` / `addCustomThemeStylePoint()` + `stageObjects()`），无需改代码，但舞台坐标需合理摆放
 - 规划扩展的挂载点击后显示占位，待对应扩展实现后自动变真实页

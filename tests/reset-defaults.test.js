@@ -3,7 +3,9 @@ import assert from 'node:assert/strict';
 import { installLocalStorage, installFakeBrowser } from './helpers.js';
 installLocalStorage(); installFakeBrowser();
 
-const { extEnabled, setExtEnabled, registry } = await import('../js/core.js');
+const { extEnabled, setExtEnabled, registry, store, getMenuLayout, getConfigSnapshot, applyConfigSnapshot,
+  setPlannedFeatures, extStageOf, isExtInstalled, installExt, uninstallExt, extNeedsUpdate, updateExt } = await import('../js/core.js');
+const { storageKey } = await import('../js/base.js');
 
 test('全新状态下业务扩展默认关闭（extEnabled 默认 false）', () => {
   registry.add({ id: 'todo', name: '任务', group: 'main', order: 1 });
@@ -47,4 +49,61 @@ test('一次性重置迁移：清除存量业务数据与扩展启用态，且�
   const second = base.migrateResetToEmpty();
   assert.equal(second, false, '已有标记时不再重置');
   assert.ok(localStorage.getItem('wh_ext_todo_items'), '新数据保留');
+});
+
+test('全新工作台不预置任何分组文件夹', () => {
+  localStorage.removeItem(storageKey('menuLayout'));
+  assert.deepEqual(getMenuLayout().groups, []);
+});
+
+test('存量 v1 预置分组被过滤，用户自建分组保留', () => {
+  store.set('menuLayout', {
+    groups: [
+      { id: 'g-work', name: '工作', zone: 'left' },
+      { id: 'g-knowledge', name: '知识', zone: 'left' },
+      { id: 'g-tools', name: '工具', zone: 'left' },
+      { id: 'g-custom', name: '我的分组', zone: 'left' },
+    ],
+    placement: {},
+  });
+  assert.deepEqual(getMenuLayout().groups.map(g => g.id), ['g-custom']);
+  localStorage.removeItem(storageKey('menuLayout'));
+});
+
+test('配置快照：草稿改动不影响 store，应用后才写回', () => {
+  localStorage.removeItem(storageKey('menuLayout'));
+  const snap = getConfigSnapshot('classic');
+  assert.deepEqual(snap.menuLayout.groups, []);
+  snap.menuLayout.groups.push({ id: 'g-x', name: '新分组', zone: 'left' });
+  assert.deepEqual(getMenuLayout().groups, [], '草稿改动未写回前 store 不变');
+  applyConfigSnapshot('classic', snap);
+  assert.deepEqual(getMenuLayout().groups.map(g => g.id), ['g-x'], '应用后写回 store');
+  localStorage.removeItem(storageKey('menuLayout'));
+});
+
+test('扩展阶段：registry 视为已上架，清单项按声明，未知回落计划中', () => {
+  registry.add({ id: 'todo', name: '任务', group: 'main', order: 1 });
+  setPlannedFeatures([
+    { id: 'dev-ext', stage: 'developing' },
+    { id: 'live-ext', stage: 'published', version: '1.2.0' },
+  ]);
+  assert.equal(extStageOf('todo'), 'published');
+  assert.equal(extStageOf('dev-ext'), 'developing');
+  assert.equal(extStageOf('unknown'), 'planning');
+  setPlannedFeatures([]);
+});
+
+test('清单扩展：默认未安装 → 安装 → 待更新 → 更新 → 卸载', () => {
+  setPlannedFeatures([{ id: 'tool-json', name: 'JSON 工具', group: 'Tools', stage: 'published', version: '1.0.0' }]);
+  localStorage.removeItem(storageKey('extInstallState'));
+  assert.equal(isExtInstalled('tool-json'), false, '清单条目默认未安装');
+  installExt('tool-json');
+  assert.equal(isExtInstalled('tool-json'), true);
+  assert.equal(extNeedsUpdate('tool-json'), true, '新装版本未确认，视为可更新');
+  updateExt('tool-json');
+  assert.equal(extNeedsUpdate('tool-json'), false, '更新后版本对齐');
+  uninstallExt('tool-json');
+  assert.equal(isExtInstalled('tool-json'), false);
+  localStorage.removeItem(storageKey('extInstallState'));
+  setPlannedFeatures([]);
 });

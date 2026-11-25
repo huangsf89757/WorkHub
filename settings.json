@@ -1,8 +1,7 @@
 {
-  "theme": "dark",
-  "skin": "classic",
+  "themeColor": "dark",
+  "themeStyle": "classic",
   "shortcuts": {
-    "switchExt": "mod+1-9",
     "settings": "mod+,",
     "back": "esc"
   }

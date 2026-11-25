@@ -3,23 +3,24 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
-<title>界面样式详情 · WorkHub 设计原型</title>
+<title>主题风格详情 · WorkHub 设计原型</title>
 <!--
-  界面样式详情页 · 交互式设计原型（简化版）
-  入口：设置 › 界面样式 › 皮肤卡片「⋯」 › 查看详情
+  主题风格详情页 · 交互式设计原型（简化版）
+  入口：设置 › 主题风格 › 主题风格卡片「⋯」 › 查看详情
   三个 Tab：介绍 / 预览 / 挂载点配置
   挂载点配置：单一树形结构 + 新增 + 删除（有扩展绑定时弹窗确认并转移）
-  架构映射：getSkinMountPoints / getMenuLayout → 树数据源
+  架构映射：getThemeStyleMountPoints / getMenuLayout → 树数据源
             addGroup / updateGroup / deleteGroup → 目录增删
-            setSkinMount / setPlacement → 扩展绑定
+            setThemeStyleMount / setPlacement → 扩展绑定
+            mounts 中每项为独立挂载实例，同一扩展可多处挂载且设置互不影响
   设计准则：面包屑、键盘导航+可见焦点、行内校验+错误就近+错误摘要、SVG 图标
 -->
 <style>
 :root{--font:-apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC","Helvetica Neue",sans-serif;--mono:"SF Mono",ui-monospace,Menlo,Consolas,monospace;--r-sm:5px;--r-md:7px;--r-lg:10px;--top-h:44px;--maxw:920px}
-[data-theme="dark"]{--bg:#181818;--bg-panel:#1f1f1f;--bg-inset:#252526;--bg-hover:rgba(255,255,255,.055);--bg-active:rgba(255,255,255,.09);--text:#d4d4d4;--text-2:#9da0a6;--text-3:#6e7681;--line:rgba(255,255,255,.085);--line-strong:rgba(255,255,255,.18);--accent:#569cd6;--accent-text:#10151b;--accent-soft:rgba(86,156,214,.16);--red:#f14c4c;--danger-soft:rgba(241,76,76,.14);--amber:#e2b341;--green:#56d364;--toast-bg:#2d2d30;--toast-text:#d4d4d4;--shadow:rgba(0,0,0,.45);--scroll:rgba(140,140,140,.35)}
-[data-theme="light"]{--bg:#e8e8e8;--bg-panel:#fff;--bg-inset:#f3f3f3;--bg-hover:rgba(0,0,0,.045);--bg-active:rgba(0,0,0,.08);--text:#1f1f1f;--text-2:#616161;--text-3:#9e9e9e;--line:rgba(0,0,0,.09);--line-strong:rgba(0,0,0,.17);--accent:#005fb8;--accent-text:#fff;--accent-soft:rgba(0,95,184,.12);--red:#cd3131;--danger-soft:rgba(205,49,49,.1);--amber:#bf8803;--green:#1a7f37;--toast-bg:#2d2d30;--toast-text:#fff;--shadow:rgba(0,0,0,.18);--scroll:rgba(0,0,0,.22)}
-[data-theme="terminal"]{--bg:#0d0d0d;--bg-panel:#0d0d0d;--bg-inset:#12130f;--bg-hover:rgba(74,246,38,.07);--bg-active:rgba(74,246,38,.13);--text:#43d95e;--text-2:#2fa14b;--text-3:#1f7236;--line:rgba(74,246,38,.14);--line-strong:rgba(74,246,38,.3);--accent:#4af626;--accent-text:#051405;--accent-soft:rgba(74,246,38,.12);--red:#ff5f5f;--danger-soft:rgba(255,95,95,.12);--amber:#ffb64a;--green:#4af626;--toast-bg:#12130f;--toast-text:#43d95e;--shadow:rgba(0,0,0,.6);--scroll:rgba(74,246,38,.3)}
-[data-theme="oled"]{--bg:#000;--bg-panel:#0a0a0a;--bg-inset:#121212;--bg-hover:rgba(255,255,255,.06);--bg-active:rgba(255,255,255,.1);--text:#e6e6e6;--text-2:#9c9c9c;--text-3:#666;--line:rgba(255,255,255,.08);--line-strong:rgba(255,255,255,.2);--accent:#4ec9b0;--accent-text:#00110d;--accent-soft:rgba(78,201,176,.14);--red:#f14c4c;--danger-soft:rgba(241,76,76,.14);--amber:#e2b341;--green:#56d364;--toast-bg:#161616;--toast-text:#e6e6e6;--shadow:rgba(0,0,0,.7);--scroll:rgba(140,140,140,.35)}
+[data-theme-color="dark"]{--bg:#181818;--bg-panel:#1f1f1f;--bg-inset:#252526;--bg-hover:rgba(255,255,255,.055);--bg-active:rgba(255,255,255,.09);--text:#d4d4d4;--text-2:#9da0a6;--text-3:#6e7681;--line:rgba(255,255,255,.085);--line-strong:rgba(255,255,255,.18);--accent:#569cd6;--accent-text:#10151b;--accent-soft:rgba(86,156,214,.16);--red:#f14c4c;--danger-soft:rgba(241,76,76,.14);--amber:#e2b341;--green:#56d364;--toast-bg:#2d2d30;--toast-text:#d4d4d4;--shadow:rgba(0,0,0,.45);--scroll:rgba(140,140,140,.35)}
+[data-theme-color="light"]{--bg:#e8e8e8;--bg-panel:#fff;--bg-inset:#f3f3f3;--bg-hover:rgba(0,0,0,.045);--bg-active:rgba(0,0,0,.08);--text:#1f1f1f;--text-2:#616161;--text-3:#9e9e9e;--line:rgba(0,0,0,.09);--line-strong:rgba(0,0,0,.17);--accent:#005fb8;--accent-text:#fff;--accent-soft:rgba(0,95,184,.12);--red:#cd3131;--danger-soft:rgba(205,49,49,.1);--amber:#bf8803;--green:#1a7f37;--toast-bg:#2d2d30;--toast-text:#fff;--shadow:rgba(0,0,0,.18);--scroll:rgba(0,0,0,.22)}
+[data-theme-color="terminal"]{--bg:#0d0d0d;--bg-panel:#0d0d0d;--bg-inset:#12130f;--bg-hover:rgba(74,246,38,.07);--bg-active:rgba(74,246,38,.13);--text:#43d95e;--text-2:#2fa14b;--text-3:#1f7236;--line:rgba(74,246,38,.14);--line-strong:rgba(74,246,38,.3);--accent:#4af626;--accent-text:#051405;--accent-soft:rgba(74,246,38,.12);--red:#ff5f5f;--danger-soft:rgba(255,95,95,.12);--amber:#ffb64a;--green:#4af626;--toast-bg:#12130f;--toast-text:#43d95e;--shadow:rgba(0,0,0,.6);--scroll:rgba(74,246,38,.3)}
+[data-theme-color="oled"]{--bg:#000;--bg-panel:#0a0a0a;--bg-inset:#121212;--bg-hover:rgba(255,255,255,.06);--bg-active:rgba(255,255,255,.1);--text:#e6e6e6;--text-2:#9c9c9c;--text-3:#666;--line:rgba(255,255,255,.08);--line-strong:rgba(255,255,255,.2);--accent:#4ec9b0;--accent-text:#00110d;--accent-soft:rgba(78,201,176,.14);--red:#f14c4c;--danger-soft:rgba(241,76,76,.14);--amber:#e2b341;--green:#56d364;--toast-bg:#161616;--toast-text:#e6e6e6;--shadow:rgba(0,0,0,.7);--scroll:rgba(140,140,140,.35)}
 *,*::before,*::after{margin:0;padding:0;box-sizing:border-box}
 html,body{height:100%}
 body{font-family:var(--font);font-size:13px;color:var(--text);background:var(--bg);overflow:hidden;-webkit-font-smoothing:antialiased;caret-color:var(--accent)}
@@ -45,11 +46,11 @@ input,select{font:inherit;font-size:13px;color:var(--text)}
 .page-header{display:flex;align-items:flex-start;gap:14px;margin-bottom:18px}
 .back-btn{display:inline-flex;align-items:center;gap:5px;padding:6px 9px;margin-top:3px;color:var(--text-2);border:1px solid var(--line);border-radius:var(--r-sm);white-space:nowrap;flex:none}
 .back-btn:hover{background:var(--bg-hover);color:var(--text)}.back-btn .icon{width:14px;height:14px}
-.skin-hero{display:flex;align-items:center;gap:12px;flex:1;min-width:0}
-.skin-hero .bigicon{width:38px;height:38px;display:inline-flex;align-items:center;justify-content:center;background:var(--accent-soft);color:var(--accent);border-radius:var(--r-md)}
-.skin-hero .bigicon .icon{width:20px;height:20px}
-.skin-hero h1{font-size:17px;font-weight:600;line-height:1.3}
-.skin-hero .sub{font-size:11.5px;color:var(--text-3);font-family:var(--mono);margin-top:2px}
+.theme-style-hero{display:flex;align-items:center;gap:12px;flex:1;min-width:0}
+.theme-style-hero .bigicon{width:38px;height:38px;display:inline-flex;align-items:center;justify-content:center;background:var(--accent-soft);color:var(--accent);border-radius:var(--r-md)}
+.theme-style-hero .bigicon .icon{width:20px;height:20px}
+.theme-style-hero h1{font-size:17px;font-weight:600;line-height:1.3}
+.theme-style-hero .sub{font-size:11.5px;color:var(--text-3);font-family:var(--mono);margin-top:2px}
 .page-actions{display:flex;gap:8px;align-items:center}
 
 .btn{display:inline-flex;align-items:center;justify-content:center;gap:6px;padding:6px 12px;font-size:12.5px;border-radius:var(--r-sm);border:1px solid var(--line-strong);background:var(--bg-panel);color:var(--text);white-space:nowrap;flex:none;transition:background .12s,border-color .12s}
@@ -86,10 +87,14 @@ input,select{font:inherit;font-size:13px;color:var(--text)}
 .contract span{display:block}
 
 /* 预览 —— 经典分栏五区示意 */
-.pv-classic{display:grid;grid-template-columns:1fr 2.2fr 1fr;grid-template-rows:34px 1fr 30px;gap:6px;height:300px;background:var(--bg);border:1px dashed var(--line-strong);border-radius:var(--r-md);padding:10px}
-.pv-zone{display:flex;align-items:center;justify-content:center;gap:6px;border:1px dashed var(--line-strong);border-radius:var(--r-sm);color:var(--text-2);font-size:11.5px;background:var(--bg-panel)}
+.pv-classic{display:grid;grid-template-columns:1fr 2.2fr 1fr;grid-template-rows:54px 1fr 54px;gap:6px;height:320px;background:var(--bg);border:1px dashed var(--line-strong);border-radius:var(--r-md);padding:10px}
+.pv-zone{display:flex;flex-direction:column;align-items:stretch;justify-content:flex-start;gap:6px;padding:7px 9px;border:1px dashed var(--line-strong);border-radius:var(--r-sm);color:var(--accent);font-size:11.5px;background:var(--accent-soft)}
+.pv-zone-name{font-weight:600}
+.pv-slots{display:flex;gap:4px}
+.pv-slots i{flex:1;display:flex;align-items:center;justify-content:center;min-height:22px;font-style:normal;font-size:10px;color:var(--text-2);background:var(--bg-panel);border:1px solid var(--line);border-radius:3px}
 .pv-zone.can{border-style:solid;border-color:var(--accent-soft);background:var(--accent-soft);color:var(--accent)}
 .pv-zone.top{grid-column:1/4}.pv-zone.bottom{grid-column:1/4}
+.pv-zone.left .pv-slots,.pv-zone.right .pv-slots{flex:1;flex-direction:column}
 .pv-center{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:7px;border:1px solid var(--line);border-radius:var(--r-sm);color:var(--text-3);background:var(--bg-panel)}
 .pv-center .icon{width:22px;height:22px;opacity:.6}
 .pv-legend{display:flex;gap:14px;margin-top:10px;font-size:11px;color:var(--text-3)}
@@ -121,8 +126,13 @@ input,select{font:inherit;font-size:13px;color:var(--text)}
 .trow .tn{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .trow .sp{flex:1}
 .trow .cnt{font-family:var(--mono);font-size:10.5px;color:var(--text-3)}
+.trow.is-disabled .tn,.trow.is-disabled .pill{opacity:.5;text-decoration:line-through}
 .more{width:22px;height:22px;display:inline-flex;align-items:center;justify-content:center;border-radius:var(--r-sm);color:var(--text-3);flex:none}
 .more:hover{background:var(--bg-active);color:var(--text)}
+.row-act{width:24px;height:24px;display:inline-flex;align-items:center;justify-content:center;border-radius:var(--r-sm);color:var(--text-2);flex:none;position:relative;z-index:1}
+.row-act:hover{background:var(--bg-active);color:var(--text)}
+.row-act.danger:hover{background:var(--danger-soft);color:var(--red)}
+.row-act .icon{width:14px;height:14px}
 .more .icon{width:14px;height:14px}
 .tgroup{overflow:hidden}
 .frow{display:flex;align-items:center;gap:8px;min-height:28px;font-size:12px;color:var(--text-2)}
@@ -179,12 +189,12 @@ input,select{font:inherit;font-size:13px;color:var(--text)}
 @media(prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
 </head>
-<body data-theme="dark">
+<body data-theme-color="dark">
 <header class="topbar">
   <div class="brand"><span class="icon" id="brandIcon"></span><span>WorkHub</span></div>
   <nav class="crumb" id="crumb" aria-label="面包屑导航"></nav>
   <div class="spacer"></div>
-  <button class="icon-btn" id="btnTheme" title="切换主题" aria-label="切换主题"></button>
+  <button class="icon-btn" id="btnThemeColor" title="切换主题色" aria-label="切换主题色"></button>
 </header>
 <div class="stage" id="stage"></div>
 <div class="toast" id="toast" role="status" aria-live="polite"></div>
@@ -204,6 +214,7 @@ const I={
   trash:P('<path d="M4 7h16M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2M6 7l1 13a1.5 1.5 0 0 0 1.5 1.4h7A1.5 1.5 0 0 0 17 20l1-13"/>'),
   edit:P('<path d="M4 20h4L19.5 8.5a2.1 2.1 0 0 0-3-3L5 17z"/>'),
   eye:P('<path d="M2.5 12s3.5-6 9.5-6 9.5 6 9.5 6-3.5 6-9.5 6-9.5-6-9.5-6z"/><circle cx="12" cy="12" r="2.5"/>'),
+  eyeOff:P('<path d="M3 3l18 18"/><path d="M10.6 6.2A9.8 9.8 0 0 1 12 6c6 0 9.5 6 9.5 6a16 16 0 0 1-2.8 3.4"/><path d="M6.3 7.8A16 16 0 0 0 2.5 12s3.5 6 9.5 6a9.7 9.7 0 0 0 3.4-.6"/><path d="M9.9 9.9a3 3 0 0 0 4.2 4.2"/>'),
   tree:P('<path d="M5 4v7a3 3 0 0 0 3 3h11"/><path d="M5 18h6"/><rect x="15" y="12" width="5" height="5" rx="1"/><rect x="2" y="2" width="5" height="4" rx="1"/><rect x="2" y="16" width="5" height="4" rx="1"/>'),
   info:P('<circle cx="12" cy="12" r="9"/><path d="M12 8h.01M11.5 12H12v4h.5"/>'),
   settings:P('<circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1 1.55V21a2 2 0 1 1-4 0v-.09a1.7 1.7 0 0 0-1-1.55 1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.7 1.7 0 0 0 .34-1.87 1.7 1.7 0 0 0-1.55-1H3a2 2 0 1 1 0-4h.09a1.7 1.7 0 0 0 1.55-1 1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.7 1.7 0 0 0 1.87.34h0a1.7 1.7 0 0 0 1-1.55V3a2 2 0 1 1 4 0v.09a1.7 1.7 0 0 0 1 1.55h0a1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.7 1.7 0 0 0-.34 1.87v0a1.7 1.7 0 0 0 1.55 1H21a2 2 0 1 1 0 4h-.09a1.7 1.7 0 0 0-1.55 1z"/>'),
@@ -213,7 +224,7 @@ const I={
 };
 const ic=(k,c='')=>`<span class="icon ${c}">${I[k]||I.file}</span>`;
 document.getElementById('brandIcon').innerHTML=I.puzzle;
-document.getElementById('btnTheme').innerHTML=I.info;
+document.getElementById('btnThemeColor').innerHTML=I.info;
 
 /* ================= 数据 ================= */
 const EXTS={
@@ -223,35 +234,42 @@ const EXTS={
   'tool-time':{name:'时间转换',type:'规划·P2'},settings:{name:'设置',type:'系统页'},
   'ext-center':{name:'扩展中心',type:'系统页'},
 };
-const SKINS=[
+/** 每个分区三段槽位：竖向分区上/中/下，横向分区左/中/右。中间区是内容区，不挂载。 */
+const SLOTS=(zone,a,b,c)=>[a,b,c].map((n,i)=>({id:zone+':'+['0','1','2'][i],name:n+'部',kind:'slot',children:[]}));
+/** 挂载实例：同一扩展可挂到多个位置，每份实例独立持有自己的设置（如是否停用）。 */
+const mkMount=extId=>({extId,disabled:false});
+const THEME_STYLES=[
   {id:'classic',name:'经典分栏',layout:'panels',icon:'tree',
    desc:'默认五区布局：top/left 为主菜单一级入口，center 为主内容，right/bottom 为扩展功能面板。',
    hooks:'home / detail → center · panel → right · status → bottom · badge',
    points:[
-    {id:'left',name:'左侧栏',kind:'zone',children:[
-      {id:'left:main',name:'主菜单',kind:'folder',mounts:['todo']},
-      {id:'g-work',name:'工作',kind:'folder',mounts:[]},
-      {id:'g-knowledge',name:'知识',kind:'folder',mounts:[]},
-    ]},
-    {id:'top',name:'顶部栏',kind:'zone',mounts:[]},
-    {id:'right',name:'右侧栏',kind:'zone',mounts:[]},
-    {id:'bottom',name:'底部栏',kind:'zone',mounts:[]},
+    {id:'left',name:'左侧栏',kind:'zone',children:SLOTS('left','上','中','下').map((s,i)=>i===0
+      ?{...s,mounts:[mkMount('todo')]}
+      :i===1
+        ?{...s,children:[
+          {id:'left:main',name:'主菜单',kind:'folder',mounts:[mkMount('todo')]},
+          {id:'g-work',name:'工作',kind:'folder',mounts:[]},
+          {id:'g-knowledge',name:'知识',kind:'folder',mounts:[]},
+        ]}:s)},
+    {id:'top',name:'顶部栏',kind:'zone',children:SLOTS('top','左','中','右')},
+    {id:'right',name:'右侧栏',kind:'zone',children:SLOTS('right','上','中','下')},
+    {id:'bottom',name:'底部栏',kind:'zone',children:SLOTS('bottom','左','中','右')},
    ]},
   {id:'studio3d',name:'3D 工作室',layout:'stage',icon:'disk',
    desc:'纯 CSS 3D 等距房间。桌子、电脑、宠物、小人、书架、工具箱都是扩展挂载点，点击实物打开对应功能。',
    hooks:'renderStage(ctx) → 主舞台 · configureMounts() → 挂载设置 · settingsPanel() → 设置页',
    points:[
-    {id:'computer',name:'电脑',kind:'object',mounts:['todo']},
-    {id:'desk',name:'书桌',kind:'object',mounts:['projects']},
-    {id:'pet',name:'宠物',kind:'object',mounts:['notes']},
-    {id:'person',name:'小人',kind:'object',mounts:['settings']},
-    {id:'shelf',name:'书架',kind:'object',mounts:['learning']},
-    {id:'toolbox',name:'工具箱',kind:'object',mounts:['tool-time']},
+    {id:'computer',name:'电脑',kind:'object',mounts:[mkMount('todo')]},
+    {id:'desk',name:'书桌',kind:'object',mounts:[mkMount('projects')]},
+    {id:'pet',name:'宠物',kind:'object',mounts:[mkMount('notes')]},
+    {id:'person',name:'小人',kind:'object',mounts:[mkMount('settings')]},
+    {id:'shelf',name:'书架',kind:'object',mounts:[mkMount('learning')]},
+    {id:'toolbox',name:'工具箱',kind:'object',mounts:[mkMount('tool-time')]},
    ]},
 ];
-const THEMES=['dark','light','terminal','oled'],TL={dark:'深色',light:'浅色',terminal:'终端',oled:'OLED'};
-let S={view:'settings',skin:0,tab:'intro',theme:0,expanded:new Set()};
-const skin=()=>SKINS[S.skin];
+const THEME_COLORS=['dark','light','terminal','oled'],TL={dark:'深色',light:'浅色',terminal:'终端',oled:'OLED'};
+let S={view:'settings',themeStyle:0,tab:'intro',themeColor:0,expanded:new Set()};
+const themeStyle=()=>THEME_STYLES[S.themeStyle];
 const $=s=>document.querySelector(s);
 
 /* ================= 渲染入口 ================= */
@@ -263,8 +281,8 @@ function render(){
     else{const b=document.createElement('button');b.textContent=label;b.onclick=fn;$('#crumb').append(b);}
   };
   mk('设置',()=>{S.view='settings';render()});
-  mk('界面样式',()=>{S.view='settings';render()});
-  if(S.view==='detail') mk(skin().name,null,true);
+  mk('主题风格',()=>{S.view='settings';render()});
+  if(S.view==='detail') mk(themeStyle().name,null,true);
   const crumbEl=$('#crumb');crumbEl.scrollLeft=crumbEl.scrollWidth;
   $('#stage').innerHTML='';
   (S.view==='settings'?renderSettings:renderDetail)();
@@ -272,14 +290,14 @@ function render(){
 }
 function toast(msg){const t=$('#toast');t.textContent=msg;t.classList.add('show');clearTimeout(toast.t);toast.t=setTimeout(()=>t.classList.remove('show'),2000)}
 
-/* ---------- 设置 · 界面样式 ---------- */
+/* ---------- 设置 · 主题风格 ---------- */
 function renderSettings(){
   const wrap=document.createElement('div');wrap.className='page';
-  wrap.innerHTML=`<div class="page-header"><div class="skin-hero"><div class="bigicon">${I.settings}</div><div><h1>设置</h1><div class="sub">SETTINGS</div></div></div></div>
-    <section class="panel"><div class="panel-head"><h3>界面样式 · 皮肤扩展</h3><span class="count">${SKINS.length} 个样式</span></div>
-    <div class="panel-body"><p class="hint">UI 样式本身也是扩展。点击样式卡片右上角的「⋯」→「查看详情」，查看介绍、预览并配置挂载点。</p><div class="skin-cards"></div></div></section>`;
-  const box=wrap.querySelector('.skin-cards');box.style.cssText='display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px;margin-top:14px';
-  SKINS.forEach((sk,i)=>{
+  wrap.innerHTML=`<div class="page-header"><div class="theme-style-hero"><div class="bigicon">${I.settings}</div><div><h1>设置</h1><div class="sub">SETTINGS</div></div></div></div>
+    <section class="panel"><div class="panel-head"><h3>主题风格 · 主题风格扩展</h3><span class="count">${THEME_STYLES.length} 个样式</span></div>
+    <div class="panel-body"><p class="hint">UI 样式本身也是扩展。点击样式卡片右上角的「⋯」→「查看详情」，查看介绍、预览并配置挂载点。</p><div class="theme-style-cards"></div></div></section>`;
+  const box=wrap.querySelector('.theme-style-cards');box.style.cssText='display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:12px;margin-top:14px';
+  THEME_STYLES.forEach((sk,i)=>{
     const card=document.createElement('div');card.className='panel';card.style.cssText='padding:14px;position:relative';
     card.innerHTML=`<div style="display:flex;align-items:center;gap:10px"><span class="icon" style="color:var(--accent);width:19px;height:19px">${I[sk.icon]}</span><b style="font-size:13px"></b></div>
       <p class="hint" style="margin:9px 0 12px;min-height:36px"></p>
@@ -288,7 +306,7 @@ function renderSettings(){
     card.querySelector('p').textContent=sk.desc;
     const more=document.createElement('button');more.className='more';more.style.cssText='position:absolute;top:8px;right:8px';more.innerHTML=I.more;more.setAttribute('aria-label',sk.name+' 更多操作');
     more.onclick=e=>{e.stopPropagation();openMenu(e.currentTarget,[
-      {label:'查看详情',icon:'eye',fn:()=>{S.view='detail';S.skin=i;S.tab='intro';S.expanded=new Set();render()}},
+      {label:'查看详情',icon:'eye',fn:()=>{S.view='detail';S.themeStyle=i;S.tab='intro';S.expanded=new Set();render()}},
       {label:'设为当前样式',icon:'check',fn:()=>toast('已设为当前样式：'+sk.name)},
     ])};
     card.append(more);box.append(card);
@@ -298,17 +316,17 @@ function renderSettings(){
 
 /* ---------- 详情页 ---------- */
 function renderDetail(){
-  const sk=skin(),wrap=document.createElement('div');wrap.className='page';
+  const sk=themeStyle(),wrap=document.createElement('div');wrap.className='page';
   wrap.innerHTML=`<div class="page-header">
-      <button class="back-btn" id="btnBack">${I.back} 返回界面样式</button>
-      <div class="skin-hero"><div class="bigicon">${I[sk.icon]}</div><div><h1 id="skinTitle"></h1><div class="sub" id="skinSub"></div></div></div>
+      <button class="back-btn" id="btnBack">${I.back} 返回主题风格</button>
+      <div class="theme-style-hero"><div class="bigicon">${I[sk.icon]}</div><div><h1 id="themeStyleTitle"></h1><div class="sub" id="themeStyleSub"></div></div></div>
       <div class="page-actions"><span class="pill ok">当前使用</span><button class="btn" id="btnCfg">配置挂载</button></div>
     </div>
     <div class="tabs" role="tablist">
       <button data-tab="intro">介绍</button><button data-tab="preview">预览</button><button data-tab="mounts">挂载点配置</button>
     </div><div id="tabPanel"></div>`;
-  wrap.querySelector('#skinTitle').textContent=sk.name;
-  wrap.querySelector('#skinSub').textContent=sk.id+' · '+sk.layout;
+  wrap.querySelector('#themeStyleTitle').textContent=sk.name;
+  wrap.querySelector('#themeStyleSub').textContent=sk.id+' · '+sk.layout;
   wrap.querySelector('#btnBack').onclick=()=>{S.view='settings';render()};
   wrap.querySelector('#btnCfg').onclick=()=>{S.tab='mounts';render()};
   wrap.querySelectorAll('.tabs button').forEach(b=>{
@@ -321,7 +339,7 @@ function renderDetail(){
 }
 
 function renderIntro(){
-  const sk=skin(),panel=document.createElement('section');panel.className='panel';
+  const sk=themeStyle(),panel=document.createElement('section');panel.className='panel';
   panel.innerHTML=`<div class="panel-head"><h3>样式介绍</h3></div><div class="panel-body">
     <div class="kv">
       <div class="k">名称</div><div class="v" id="iName"></div>
@@ -330,9 +348,9 @@ function renderIntro(){
       <div class="k">挂载点</div><div class="v">${countPoints(sk)} 个</div>
       <div class="k">契约钩子</div><div class="v mono" style="font-size:11.5px">${sk.hooks}</div>
     </div>
-    <div class="contract"><span>数据源　<b>getSkinMountPoints(skin)</b> / <b>getMenuLayout()</b></span>
-      <span>解析　　<b>resolveMount(skin, point)</b> / <b>mountLabelOfExt()</b></span>
-      <span>写入　　<b>setSkinMount(skinId, pointId, extId)</b></span>
+    <div class="contract"><span>数据源　<b>getThemeStyleMountPoints(themeStyle)</b> / <b>getMenuLayout()</b></span>
+      <span>解析　　<b>resolveMount(themeStyle, point)</b> / <b>mountLabelOfExt()</b></span>
+      <span>写入　　<b>setThemeStyleMount(themeStyleId, pointId, extId)</b></span>
       <span>目录　　<b>addGroup()</b> / <b>updateGroup()</b> / <b>deleteGroup()</b></span></div>
     </div>`;
   panel.querySelector('#iName').textContent=sk.name;
@@ -342,22 +360,23 @@ function renderIntro(){
 function countPoints(sk){let n=0;const w=a=>a.forEach(p=>{n++;if(p.children)w(p.children)});w(sk.points);return n}
 
 function renderPreview(){
-  const sk=skin(),panel=document.createElement('section');panel.className='panel';
+  const sk=themeStyle(),panel=document.createElement('section');panel.className='panel';
   panel.innerHTML=`<div class="panel-head"><h3>预览 · ${sk.name}</h3><span class="count">示意，非实际渲染</span></div><div class="panel-body" id="pvBody"></div>`;
   const body=panel.querySelector('#pvBody');
   if(sk.layout==='panels'){
     const d=document.createElement('div');d.className='pv-classic';
-    d.innerHTML=`<div class="pv-zone top can">顶部栏 · top（主菜单）</div>
-      <div class="pv-zone can">左侧栏 · left</div>
-      <div class="pv-center">${I.tree}<span>中间区 · center（主内容）</span></div>
-      <div class="pv-zone can">右侧栏 · right</div>
-      <div class="pv-zone bottom can">底部栏 · bottom</div>`;
+    const z=(cls,label,dirs)=>`<div class="pv-zone ${cls} can"><span class="pv-zone-name">${label}</span><span class="pv-slots">${dirs.map(d=>`<i>${d}</i>`).join('')}</span></div>`;
+    d.innerHTML=z('top','顶部栏',['左','中','右'])
+      +z('left','左侧栏',['上','中','下'])
+      +`<div class="pv-center"><span class="icon">${I.tree}</span><span>中间区 · 主内容（非挂载点）</span></div>`
+      +z('right','右侧栏',['上','中','下'])
+      +z('bottom','底部栏',['左','中','右']);
     body.append(d,Object.assign(document.createElement('div'),{className:'pv-legend',innerHTML:'<span><i class="a"></i>可挂载区</span><span><i class="b"></i>内容区</span>'}));
   }else{
     const room=document.createElement('div');room.className='pv-room';
     const pos={computer:[50,38],desk:[24,46],pet:[76,52],person:[50,70],shelf:[17,24],toolbox:[83,26]};
     sk.points.forEach(p=>{
-      const extId=p.mounts[0],n=document.createElement('div');n.className='pv-obj';
+      const extId=p.mounts[0]?.extId,n=document.createElement('div');n.className='pv-obj';
       n.style.left=pos[p.id][0]+'%';n.style.top=pos[p.id][1]+'%';
       n.innerHTML=`<div class="box">${I[p.id==='toolbox'?'puzzle':'disk']}</div><div class="nm"></div><div class="to"></div>`;
       n.querySelector('.nm').textContent=p.name;
@@ -369,67 +388,99 @@ function renderPreview(){
   $('#tabPanel').append(panel);
 }
 
-/* ---------- 挂载点配置（单一树） ---------- */
+/* ---------- 挂载点配置（分区 → 三段槽位 → 文件夹 / 扩展） ---------- */
+function initExpanded(){
+  if(S.mountsInit)return;
+  const w=a=>a.forEach(n=>{S.expanded.add(themeStyle().id+':'+n.id);if(n.children)w(n.children)});
+  w(themeStyle().points);S.mountsInit=true;
+}
 function renderMounts(){
+  initExpanded();
   $('#tabPanel').innerHTML='';
-  const sk=skin(),panel=document.createElement('section');panel.className='panel';
+  const sk=themeStyle(),panel=document.createElement('section');panel.className='panel';
   panel.innerHTML=`<div class="panel-head"><h3>挂载点配置</h3><span class="count">${countPoints(sk)} 个挂载点</span></div>
-    <div class="tree-toolbar"><button class="btn primary" id="btnAdd">${I.plus} 新增挂载点</button><span class="hint">删除已挂载扩展的节点时会先弹窗确认并转移绑定</span></div>
     <div class="tree" id="tree" role="tree" aria-label="挂载点树"></div>`;
-  panel.querySelector('#btnAdd').onclick=()=>openAdd();
   const tree=panel.querySelector('#tree');
   sk.points.forEach(p=>tree.append(nodeRow(p,0)));
   $('#tabPanel').append(panel);
 }
+const rowAct=(icon,label,fn,danger)=>{
+  const b=document.createElement('button');b.className='row-act'+(danger?' danger':'');
+  b.innerHTML=ic(icon);b.title=label;b.setAttribute('aria-label',label);
+  b.onclick=e=>{e.stopPropagation();fn(b)};
+  b.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();e.stopPropagation();fn(b)}};
+  return b;
+};
 function nodeRow(node,depth){
-  const sk=skin(),key=sk.id+':'+node.id,hasKids=!!node.children?.length,open=S.expanded.has(key);
+  const sk=themeStyle(),key=sk.id+':'+node.id,isExt=node.kind==='ext';
+  const hasKids=!!node.children?.length,open=!isExt&&S.expanded.has(key);
   const row=document.createElement('div');row.className='trow'+(depth===0?' root':'');row.setAttribute('role','treeitem');row.tabIndex=0;
   row.style.paddingLeft=(12+depth*20)+'px';
-  row.setAttribute('aria-expanded',hasKids?String(open):'false');
-  const chev=`<span class="chev ${hasKids?(open?'open':''):'leaf'}">${I.chev}</span>`;
-  const ico=ic(node.kind==='object'?'disk':'folder');
-  const bindCount=(node.mounts?.length||0);
-  row.innerHTML=chev+ico+'<span class="tn"></span><span class="sp"></span>'+(bindCount?`<span class="cnt">${bindCount} 绑定</span>`:'')+'<span class="more" role="button" tabindex="0" aria-label="更多操作">'+I.more+'</span>';
+  row.setAttribute('aria-expanded',isExt?'false':String(open));
+  row.innerHTML=`<span class="chev ${isExt?'leaf':(open?'open':'')}">${I.chev}</span>${ic(isExt?'file':(node.kind==='slot'?'group':'folder'))}<span class="tn"></span><span class="sp"></span>`;
   row.querySelector('.tn').textContent=node.name;
-  row.querySelector('.chev').onclick=e=>{e.stopPropagation();if(hasKids){open?S.expanded.delete(key):S.expanded.add(key);renderMounts()}};
-  row.onclick=()=>{if(hasKids){open?S.expanded.delete(key):S.expanded.add(key);renderMounts()}};
-  row.onkeydown=e=>{
-    if(e.key==='Enter'||e.key===' '){e.preventDefault();row.click()}
-    if(e.key==='ArrowRight'&&hasKids&&!open){e.preventDefault();S.expanded.add(key);renderMounts()}
-    if(e.key==='ArrowLeft'&&hasKids&&open){e.preventDefault();S.expanded.delete(key);renderMounts()}
-  };
-  const more=row.querySelector('.more');
-  more.onclick=e=>{e.stopPropagation();openMenu(e.currentTarget,menuItems(node))};
-  more.onkeydown=e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();e.stopPropagation();openMenu(e.currentTarget,menuItems(node))}};
+  if(isExt){
+    const e=EXTS[node.extId],m=node.mount,marks=[];
+    if(m?.disabled) row.classList.add('is-disabled');
+    if(e) marks.push(`<span class="pill">${e.type}</span>`);
+    if(m?.disabled) marks.push(`<span class="pill" style="color:var(--red)">已停用</span>`);
+    if(marks.length) row.querySelector('.sp').insertAdjacentHTML('afterend',marks.join(''));
+    row.append(rowAct(m?.disabled?'eye':'eyeOff',m?.disabled?'启用扩展':'停用扩展',()=>toggleMount(m)));
+    row.append(rowAct('trash','删除扩展',()=>openDeleteExt(node.parent,node.extId),true));
+  }else{
+    row.append(rowAct('plus','新增子项',btn=>plusMenu(btn,node)));
+    row.append(rowAct('trash',node.kind==='zone'?'清空挂载点':'删除挂载点',()=>openDelete(node),true));
+  }
+  if(!isExt&&hasKids){
+    const toggle=()=>{open?S.expanded.delete(key):S.expanded.add(key);renderMounts()};
+    row.querySelector('.chev').onclick=e=>{e.stopPropagation();toggle()};
+    row.onclick=toggle;
+    row.onkeydown=e=>{
+      if(e.key==='Enter'||e.key===' '){e.preventDefault();toggle()}
+      if(e.key==='ArrowRight'&&!open){e.preventDefault();S.expanded.add(key);renderMounts()}
+      if(e.key==='ArrowLeft'&&open){e.preventDefault();S.expanded.delete(key);renderMounts()}
+    };
+  }
   const frag=document.createDocumentFragment();frag.append(row);
   if(open&&hasKids){
     const g=document.createElement('div');g.className='tgroup';g.setAttribute('role','group');
     node.children.forEach(c=>g.append(nodeRow(c,depth+1)));frag.append(g);
   }
-  // 展开时列出本节点的扩展绑定
-  if(open&&bindCount){
+  if(open&&node.mounts?.length){
     const g=document.createElement('div');g.className='tgroup';g.style.paddingLeft=(32+depth*20)+'px';
-    node.mounts.forEach(id=>{
-      const f=document.createElement('div');f.className='frow';
-      f.innerHTML=ic('file')+'<span class="fn"></span><span class="pill">'+EXTS[id].type+'</span><span class="sp"></span><button class="btn tiny">改绑</button>';
-      f.querySelector('.fn').textContent=EXTS[id].name;
-      f.querySelector('button').onclick=()=>openRebind(node,id);
-      g.append(f);
-    });frag.append(g);
+    node.mounts.forEach(m=>g.append(nodeRow({kind:'ext',id:node.id+':'+m.extId,name:EXTS[m.extId]?.name||m.extId,extId:m.extId,mount:m,parent:node},depth+1)));
+    frag.append(g);
   }
   return frag;
 }
-function menuItems(node){
-  const items=[];
-  if(node.children||skin().layout==='panels') items.push({label:'新增子挂载点',icon:'plus',fn:()=>openAdd(node)});
-  items.push({label:'重命名',icon:'edit',fn:()=>openRename(node)});
-  items.push({sep:true});
-  items.push({label:'删除挂载点',icon:'trash',danger:true,fn:()=>openDelete(node)});
-  return items;
+function plusMenu(anchor,node){
+  openMenu(anchor,[
+    {label:'添加文件夹',icon:'folder',fn:()=>openAddFolder(node)},
+    {label:'添加扩展',icon:'file',fn:()=>openAddExt(node)},
+  ]);
 }
+function openAddFolder(parent){
+  formSheet({title:'添加文件夹',desc:`在「${parent.name}」下新建文件夹`,
+    fields:[{id:'name',label:'名称',required:true,max:24,value:''}],
+    validate:v=>{const e={};if(!v.name)e.name='请输入文件夹名称';else if((parent.children||[]).some(n=>n.name===v.name))e.name='同级下已存在同名文件夹';return e},
+    onSave:v=>{parent.children=parent.children||[];parent.children.push({id:'g'+Date.now().toString(36),name:v.name,kind:'folder',children:[],mounts:[]});S.expanded.add(themeStyle().id+':'+parent.id);render();toast('已添加文件夹：'+v.name)},submit:'创建'});
+}
+function openAddExt(parent){
+  formSheet({title:'添加扩展',desc:`挂载到「${parent.name}」`,
+    fields:[{id:'ext',label:'扩展',type:'select',options:Object.entries(EXTS).map(([id,e])=>({value:id,label:e.name+'（'+e.type+'）'}))}],
+    onSave:v=>{parent.mounts=parent.mounts||[];if(!parent.mounts.some(m=>m.extId===v.ext))parent.mounts.push(mkMount(v.ext));S.expanded.add(themeStyle().id+':'+parent.id);render();toast('已添加：'+EXTS[v.ext].name)},submit:'添加'});
+}
+function openDeleteExt(parent,extId){
+  formSheet({title:'删除扩展 · 需确认',desc:`确定从「${parent.name}」移除「${EXTS[extId]?.name||extId}」？此操作只解除挂载。`,fields:[],submit:'确认删除',danger:true,
+    onSave:()=>{parent.mounts=(parent.mounts||[]).filter(m=>m.extId!==extId);render();toast('已删除')}});
+}
+function toggleMount(m){
+  if(!m)return;m.disabled=!m.disabled;render();toast((m.disabled?'已停用：':'已启用：')+EXTS[m.extId].name);
+}
+
 function allNodes(){
   const out=[];const w=(a,parent)=>a.forEach(p=>{out.push({node:p,parent});if(p.children)w(p.children,p)});
-  w(skin().points,null);return out;
+  w(themeStyle().points,null);return out;
 }
 const nodeLabel=n=>n.name;
 
@@ -440,8 +491,8 @@ function openMenu(anchor,items){
   closeMenu();const m=document.createElement('div');m.className='menu';
   items.forEach(it=>{
     if(it.sep){m.append(Object.assign(document.createElement('div'),{className:'sep'}));return}
-    const b=document.createElement('button');b.className=it.danger?'danger':'';b.innerHTML=ic(it.icon)+'<span></span>';
-    b.querySelector('span').textContent=it.label;b.onclick=()=>{closeMenu();it.fn()};m.append(b);
+    const b=document.createElement('button');b.className=it.danger?'danger':'';b.innerHTML=ic(it.icon)+'<span class="menu-label"></span>';
+    b.querySelector('.menu-label').textContent=it.label;b.onclick=()=>{closeMenu();it.fn()};m.append(b);
   });
   document.body.append(m);curMenu=m;
   const r=anchor.getBoundingClientRect();
@@ -490,7 +541,7 @@ function formSheet({title,desc,warnHTML='',extraHTML='',fields,submit='保存',d
   return sh;
 }
 function openAdd(parent){
-  const sk=skin(),zoneOpts=(sk.points.filter(p=>p.kind==='zone').map(p=>({value:p.id,label:p.name})));
+  const sk=themeStyle(),zoneOpts=(sk.points.filter(p=>p.kind==='zone').map(p=>({value:p.id,label:p.name})));
   formSheet({
     title:'新增挂载点',desc:`样式「${sk.name}」· 对应 addGroup() / mountPoints 声明`,
     fields:[
@@ -513,7 +564,7 @@ function openAdd(parent){
   });
 }
 function openRename(node){
-  const sk=skin(),siblings=(sk.points.includes(node)?sk.points:(allNodes().find(x=>x.node===node)?.parent?.children||[]));
+  const sk=themeStyle(),siblings=(sk.points.includes(node)?sk.points:(allNodes().find(x=>x.node===node)?.parent?.children||[]));
   formSheet({title:'重命名挂载点',desc:'对应 updateGroup(id, { name })',
     fields:[{id:'name',label:'名称',required:true,max:24,hint:'0 / 24',value:node.name}],
     validate:v=>{const e={};if(!v.name)e.name='请输入名称';else if(siblings.some(n=>n!==node&&n.name===v.name))e.name='同级下已存在同名挂载点';return e},
@@ -531,37 +582,37 @@ function openDelete(node){
   formSheet({
     title:'删除挂载点 · 需确认',desc:`「${node.name}」已挂载 ${affected.length} 个扩展，删除前需要指定它们的去向。`,
     warnHTML:`<div class="warn">该挂载点已有扩展绑定，直接删除会使这些扩展失去挂载位置。</div>`,
-    extraHTML:`<div class="vlist">${affected.map(id=>'<div>'+ic('file')+'<span></span></div>').join('')}</div>`,
+    extraHTML:`<div class="vlist">${affected.map(()=>'<div>'+ic('file')+'<span></span></div>').join('')}</div>`,
     fields:[{id:'target',label:'将绑定转移到',type:'select',options:targets.length?targets:[{value:'',label:'无可用目标（将解除挂载）'}]}],
     validate:v=>targets.length&&!v.target?{target:'请选择转移目标'}:{},
     submit:'确认删除',danger:true,
     onSave:v=>{
       const all=allNodes().map(x=>x.node);
       const tgt=all.find(n=>n.id===v.target);
-      affected.forEach(id=>{if(tgt){tgt.mounts=tgt.mounts||[];if(!tgt.mounts.includes(id))tgt.mounts.push(id)}});
+      affected.forEach(m=>{if(tgt){tgt.mounts=tgt.mounts||[];if(!tgt.mounts.some(x=>x.extId===m.extId))tgt.mounts.push({extId:m.extId,disabled:m.disabled})}});
       removeNode(node);render();toast(tgt?`已删除，${affected.length} 个绑定转移至「${tgt.name}」`:'已删除并解除绑定');
     },
   });
   const list=document.querySelector('.overlay .vlist');
-  if(list) affected.forEach((id,i)=>{const s=list.children[i]?.querySelector('span');if(s)s.textContent=EXTS[id].name+'（'+EXTS[id].type+'）'});
+  if(list) affected.forEach((m,i)=>{const s=list.children[i]?.querySelector('span'),e=EXTS[m.extId];if(s&&e)s.textContent=e.name+'（'+e.type+'）'});
 }
 function descendant(root,n){let cur=n;while(cur){if(cur===root)return true;cur=allNodes().find(x=>x.node===cur)?.parent}return false}
 function nodePath(n){const chain=[];let cur=n;while(cur){chain.unshift(cur.name);cur=allNodes().find(x=>x.node===cur)?.parent}return chain.join(' / ')}
 function removeNode(node){
-  const sk=skin(),entry=allNodes().find(x=>x.node===node);
+  const sk=themeStyle(),entry=allNodes().find(x=>x.node===node);
   if(entry?.parent)entry.parent.children=entry.parent.children.filter(n=>n!==node);
   else sk.points=sk.points.filter(n=>n!==node);
   S.expanded.delete(sk.id+':'+node.id);render();
 }
 function openRebind(node,oldId){
-  formSheet({title:'修改绑定扩展',desc:`挂载点「${node.name}」· 对应 setSkinMount() / setPlacement()`,
+  formSheet({title:'修改绑定扩展',desc:`挂载点「${node.name}」· 对应 setThemeStyleMount() / setPlacement()`,
     fields:[{id:'ext',label:'扩展',type:'select',options:Object.entries(EXTS).map(([id,e])=>({value:id,label:e.name+'（'+e.type+'）'}))}],
-    onSave:v=>{node.mounts=node.mounts.map(m=>m===oldId?v.ext:m);render();toast('已更新绑定：'+EXTS[v.ext].name)}});
+    onSave:v=>{node.mounts=node.mounts.map(m=>m.extId===oldId?{...m,extId:v.ext}:m);render();toast('已更新绑定：'+EXTS[v.ext].name)}});
 }
 
-/* 主题 */
-$('#btnTheme').onclick=()=>{S.theme=(S.theme+1)%THEMES.length;document.body.dataset.theme=THEMES[S.theme];$('#btnTheme').title='主题：'+TL[THEMES[S.theme]]+'（点击切换）';toast('主题：'+TL[THEMES[S.theme]])};
-$('#btnTheme').title='主题：深色（点击切换）';
+/* 主题色 */
+$('#btnThemeColor').onclick=()=>{S.themeColor=(S.themeColor+1)%THEME_COLORS.length;document.body.dataset.themeColor=THEME_COLORS[S.themeColor];$('#btnThemeColor').title='主题色：'+TL[THEME_COLORS[S.themeColor]]+'（点击切换）';toast('主题色：'+TL[THEME_COLORS[S.themeColor]])};
+$('#btnThemeColor').title='主题色：深色（点击切换）';
 render();
 </script>
 </body>

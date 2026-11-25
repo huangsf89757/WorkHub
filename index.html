@@ -4,7 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
 <title>WorkHub</title>
-<meta name="description" content="WorkHub · 零构建、本地优先的扩展式效率工作台，五区布局与可插拔界面样式。">
+<meta name="description" content="WorkHub · 零构建、本地优先的扩展式效率工作台，五区布局与可插拔主题风格。">
 <meta name="theme-color" content="#181818">
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
@@ -15,7 +15,7 @@
 <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='7' fill='%231f1f1f'/%3E%3Cpath d='M13 10l-5 6 5 6M19 10l5 6-5 6' stroke='%234ec9b0' stroke-width='2.2' fill='none' stroke-linecap='round'/%3E%3C/svg%3E">
 <link rel="stylesheet" href="style.css">
 </head>
-<body data-theme="dark">
+<body data-theme-color="dark">
 
 <!-- 顶部栏 · 主菜单一级入口 -->
 <header class="zone zone-top" id="zoneTop">
@@ -35,6 +35,8 @@
     </div>
   </div>
   <div class="top-mounts" id="zoneTopMounts"></div>
+  <!-- 系统页顶栏右侧操作区：由系统页 meta.topActions 注入（当前为设置页的界面/源码切换） -->
+  <div class="top-page-actions" id="topPageActions"></div>
   <div class="top-right">
     <button id="btnRefresh" class="icon-btn top-refresh" title="刷新数据（云端同步 + 本地回读）" aria-label="刷新整个项目数据">
       <span class="icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" focusable="false"><path d="M20 11a8 8 0 1 0-2.3 5.7"/><path d="M20 5v6h-6"/></svg></span>
@@ -64,7 +66,7 @@
 <footer class="zone zone-bottom" id="zoneBottom">
   <div class="bottom-label" id="zoneBottomLabel"></div>
   <div class="bottom-hint">
-    <span class="kbd" id="hintSwitchExt">⌘1-9</span> 切换扩展
+    <span id="hintExtShortcut" hidden><span class="kbd" id="hintExtKey"></span> <span id="hintExtName"></span></span>
     <span class="kbd" id="hintBack">Esc</span> 返回
     <span class="kbd" id="hintSettings">⌘,</span> 设置
   </div>

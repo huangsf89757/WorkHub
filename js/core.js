@@ -1,19 +1,24 @@
 /* core.js — WorkHub 内核
  *
- * 职责：系统偏好、事件总线、DOM 构建、扩展注册表、皮肤注册表、路由、五区渲染、启动。
+ * 职责：系统偏好、事件总线、DOM 构建、扩展注册表、主题风格注册表、路由、五区渲染、启动。
  * 约束：零构建 / 原生 ES Modules；视图不碰存储；扩展只通过契约接入。
  *
  * 对外 API（供扩展与系统页使用，保持稳定）：
  *   store, bus, el, toast, openModal, field, input, pageHeader, fmtTime
  *   registry, setPlannedFeatures, getPlannedFeatures, registerSystemPage, hasSystemPage
- *   skinRegistry, registerSkin, getAllSkins, getActiveSkin, setActiveSkin,
- *     getSkinMounts, setSkinMount, resolveMount, getSkinMountPoints, mountLabelOfExt,
- *     getCustomSkinPoints, addCustomSkinPoint, updateCustomSkinPoint, deleteCustomSkinPoint
+ *   themeStyleRegistry, registerThemeStyle, getAllThemeStyles, getActiveThemeStyle, setActiveThemeStyle,
+ *     getThemeStyleMounts, setThemeStyleMount, resolveMount, getThemeStyleMountPoints, mountLabelOfExt,
+ *     getMountEnabled, mountEnabledOf, setMountEnabled,
+ *     getCustomThemeStylePoints, addCustomThemeStylePoint, updateCustomThemeStylePoint, deleteCustomThemeStylePoint
  *   openPopMenu
  *   ZONES, NAV_ZONES, PANEL_ZONES, placementOf, navExts, placementPicker,
- *   getMenuLayout, setPlacement, addGroup, updateGroup, deleteGroup
- *   extEnabled, setExtEnabled, themeNames, applyTheme, setDefaultStatus
+ *   getMenuLayout, setPlacement, addGroup, updateGroup, deleteGroup,
+ *     getConfigSnapshot, applyConfigSnapshot
+ *   extEnabled, setExtEnabled, EXT_STAGES, extStageLabel, extStageOf,
+ *     isExtInstalled, installExt, uninstallExt, extNeedsUpdate, updateExt, isExtMounted
+ *   themeColorNames, applyThemeColor, setDefaultStatus
  *   SHORTCUT_ACTIONS, getShortcuts, setShortcut, resetShortcuts,
+ *     getExtShortcuts, setExtShortcut, removeExtShortcut, shortcutExtCandidates,
  *     matchShortcut, comboFromEvent, formatShortcut, isModifierKey
  *   rightPanelOpen, toggleRightPanel, router, openUserPanel, boot, icons
  *   setRefreshHandler, refreshAllData
@@ -25,21 +30,48 @@ import { PREFIX, storageKey, migrateStorageKeys, store, bus, registry } from './
 export { PREFIX, storageKey, migrateStorageKeys, store, bus, registry };
 
 /* ============================================================
-   1b. 快捷键配置（可自定义，存 wh_shortcuts）
+   1b. 快捷键配置（可自定义，存 wh_sys_settings_shortcuts）
    combo 语法：修饰键(mod|ctrl|meta|alt|shift) + 主键，用 + 连接。
-   mod 表示 Mac 上 meta、其它平台 ctrl；数字 1-9 用占位键 '1-9'。
+   mod 表示 Mac 上 meta、其它平台 ctrl；扩展快捷键以 'ext:' 为键前缀。
+   内置动作只有打开设置 / 返回；扩展快捷键由用户按扩展逐个添加。
    ============================================================ */
 export const SHORTCUT_ACTIONS = [
-  { id: 'switchExt', label: '切换扩展', default: 'mod+1-9', keyLabel: '1-9', kind: 'range' },
   { id: 'settings', label: '打开设置', default: 'mod+,', keyLabel: ',', kind: 'key' },
   { id: 'back', label: '返回 / 关闭浮层', default: 'esc', keyLabel: 'Esc', kind: 'key' },
 ];
 const DEFAULT_SHORTCUTS = Object.fromEntries(SHORTCUT_ACTIONS.map(a => [a.id, a.default]));
+const EXT_PREFIX = 'ext:';
 const actionOf = id => SHORTCUT_ACTIONS.find(a => a.id === id);
 
 export function getShortcuts() {
   const saved = store.get('shortcuts', {});
-  return { ...DEFAULT_SHORTCUTS, ...(saved && typeof saved === 'object' ? saved : {}) };
+  const all = { ...DEFAULT_SHORTCUTS, ...(saved && typeof saved === 'object' ? saved : {}) };
+  delete all.switchExt; // 旧版「切换扩展」已移除，清理历史配置
+  return all;
+}
+
+/** 已绑定的扩展快捷键：{ extId: combo } */
+export function getExtShortcuts() {
+  const out = {};
+  for (const [id, combo] of Object.entries(getShortcuts())) {
+    if (id.startsWith(EXT_PREFIX) && typeof combo === 'string' && combo) out[id.slice(EXT_PREFIX.length)] = combo;
+  }
+  return out;
+}
+
+/** 当前主题风格下「已添加且可用」的扩展，作为添加快捷键的候选 */
+export function shortcutExtCandidates() {
+  const themeStyle = getActiveThemeStyle();
+  const usable = id => !!registry.get(id) && extEnabled(id);
+  const ids = new Set(navExts().map(e => e.id));
+  if (themeStyle) {
+    for (const point of getThemeStyleMountPoints(themeStyle)) {
+      if (!mountEnabledOf(themeStyle.id, point.id)) continue;
+      const id = resolveMount(themeStyle, point);
+      if (id) ids.add(id);
+    }
+  }
+  return [...ids].filter(usable).map(id => registry.get(id));
 }
 
 /** 键盘事件 → combo 字符串；纯修饰键返回 null */
@@ -79,36 +111,68 @@ export function matchShortcut(event, combo) {
 export function formatShortcut(combo) {
   const parts = combo.split('+');
   const key = parts.pop();
-  const modName = { mod: '⌘ / Ctrl', ctrl: 'Ctrl', meta: '⌘', alt: 'Alt', shift: 'Shift' };
+  const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+  const modName = { mod: isMac ? '⌘' : 'Ctrl', ctrl: 'Ctrl', meta: '⌘', alt: 'Alt', shift: 'Shift' };
   const keyName = { esc: 'Esc', space: 'Space', ',': ',', '1-9': '1-9' };
   const label = k => modName[k] || keyName[k] || (k.length === 1 ? k.toUpperCase() : k);
-  return [...parts.map(label), label(key)].join(' + ');
+  return [...parts.map(label), label(key)].join('');
 }
 
-/** 保存单个快捷键；校验冲突（range 展开为 9 个槽位比对）。返回 {ok, error} */
-export function setShortcut(id, combo) {
-  const action = actionOf(id);
-  if (!action || !combo) return { ok: false, error: '无效的快捷键' };
-  const slotsOf = c => {
-    const parts = c.split('+'), key = parts.pop();
-    return key === '1-9' ? Array.from({ length: 9 }, (_, i) => [...parts, String(i + 1)].join('+'))
-      : [[...parts, key].join('+')];
-  };
+/** combo → 槽位集合；range（1-9）展开为 9 个键 */
+const slotsOf = c => {
+  const parts = c.split('+'), key = parts.pop();
+  return key === '1-9' ? Array.from({ length: 9 }, (_, i) => [...parts, String(i + 1)].join('+'))
+    : [[...parts, key].join('+')];
+};
+/** 冲突检测：返回冲突方的可读名称，无冲突返回 null */
+function conflictOf(id, combo, shortcuts) {
   const mine = new Set(slotsOf(combo));
-  const all = getShortcuts();
-  for (const a of SHORTCUT_ACTIONS) {
-    if (a.id === id) continue;
-    if (slotsOf(all[a.id]).some(s => mine.has(s)))
-      return { ok: false, error: `与「${a.label}」冲突` };
+  for (const [otherId, otherCombo] of Object.entries(shortcuts)) {
+    if (otherId === id || !otherCombo) continue;
+    if (!slotsOf(otherCombo).some(s => mine.has(s))) continue;
+    if (otherId.startsWith(EXT_PREFIX)) {
+      const extId = otherId.slice(EXT_PREFIX.length);
+      return `扩展「${registry.get(extId)?.name || extId}」`;
+    }
+    return actionOf(otherId)?.label || otherId;
   }
-  const next = { ...all, [id]: combo };
-  store.set('shortcuts', next);
+  return null;
+}
+function commitShortcut(id, combo) {
+  if (!combo) return { ok: false, error: '无效的快捷键' };
+  const all = getShortcuts();
+  const conflict = conflictOf(id, combo, all);
+  if (conflict) return { ok: false, error: `与${conflict}冲突` };
+  all[id] = combo;
+  store.set('shortcuts', all);
   bus.emit('shortcuts');
   return { ok: true };
 }
+/** 保存内置动作的快捷键。返回 {ok, error} */
+export function setShortcut(id, combo) {
+  if (!actionOf(id)) return { ok: false, error: '无效的快捷键' };
+  return commitShortcut(id, combo);
+}
+/** 为扩展绑定快捷键。返回 {ok, error} */
+export function setExtShortcut(extId, combo) {
+  if (!registry.get(extId)) return { ok: false, error: '扩展不存在' };
+  return commitShortcut(EXT_PREFIX + extId, combo);
+}
+/** 移除某个扩展的快捷键 */
+export function removeExtShortcut(extId) {
+  const all = getShortcuts();
+  delete all[EXT_PREFIX + extId];
+  store.set('shortcuts', all);
+  bus.emit('shortcuts');
+}
 
-export function resetShortcuts() {
-  store.set('shortcuts', { ...DEFAULT_SHORTCUTS });
+/** 恢复默认快捷键；keepExt 为 true 时保留用户添加的扩展快捷键 */
+export function resetShortcuts({ keepExt = false } = {}) {
+  const all = getShortcuts();
+  const ext = keepExt
+    ? Object.fromEntries(Object.entries(all).filter(([key]) => key.startsWith(EXT_PREFIX)))
+    : {};
+  store.set('shortcuts', { ...DEFAULT_SHORTCUTS, ...ext });
   bus.emit('shortcuts');
 }
 
@@ -170,13 +234,14 @@ export async function refreshAllData() {
 let modalSeq = 0;
 /** 可聚焦元素选择器：Tab 环绕与初始聚焦共用，避免焦点逃出弹窗 */
 const FOCUSABLE = 'button:not([disabled]),[href],input:not([disabled]):not([type="hidden"]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])';
-export function openModal(title, body, buttons) {
+export function openModal(title, body, buttons, onClose) {
   const prevFocus = document.activeElement;   // 关闭后把焦点还给触发者
   const titleId = 'modal-title-' + (++modalSeq);
   let onKeydown;
   const close = () => {
     document.removeEventListener('keydown', onKeydown);
     overlay.remove();
+    onClose?.();
     if (prevFocus && document.contains(prevFocus)) prevFocus.focus();
   };
   const actions = el('div', { class: 'sheet-actions' },
@@ -273,6 +338,18 @@ export const ZONES = {
 export const NAV_ZONES = ['left', 'top'];
 export const PANEL_ZONES = ['right', 'bottom'];
 
+/** 每个挂载点的三段槽位：竖向分区上/中/下，横向分区左/中/右。中间区是内容区，不参与挂载。 */
+export const ZONE_SLOTS = {
+  left: [{ id: 'top', name: '上' }, { id: 'mid', name: '中' }, { id: 'bottom', name: '下' }],
+  right: [{ id: 'top', name: '上' }, { id: 'mid', name: '中' }, { id: 'bottom', name: '下' }],
+  top: [{ id: 'left', name: '左' }, { id: 'mid', name: '中' }, { id: 'right', name: '右' }],
+  bottom: [{ id: 'left', name: '左' }, { id: 'mid', name: '中' }, { id: 'right', name: '右' }],
+  'left-bottom': [{ id: 'left', name: '左' }, { id: 'mid', name: '中' }, { id: 'right', name: '右' }],
+};
+/** 槽位挂载点 ID：zone:slot，例如 left:top。 */
+export const slotPointId = (zone, slot) => `${zone}:${slot}`;
+export const slotsOfZone = zone => ZONE_SLOTS[zone] || [];
+
 /* ============================================================
    5. 业务扩展注册表 + 规划中清单
    ============================================================ */
@@ -280,6 +357,73 @@ export const PANEL_ZONES = ['right', 'bottom'];
 let plannedFeatures = [];
 export function setPlannedFeatures(list) { plannedFeatures = list; }
 export const getPlannedFeatures = () => plannedFeatures;
+
+/* 扩展生命周期：阶段（计划中/开发中/已上架）+ 安装/挂载/启用三态 */
+export const EXT_STAGES = [
+  { id: 'planning', label: '计划中' },
+  { id: 'developing', label: '开发中' },
+  { id: 'published', label: '已上架' },
+  { id: 'system', label: '系统内置' },
+];
+export const extStageLabel = stage => EXT_STAGES.find(s => s.id === stage)?.label || '计划中';
+/** 系统页为系统内置，其余 registry 视为已上架，清单项取声明阶段。 */
+export function extStageOf(id) {
+  if (hasSystemPage(id)) return 'system';
+  if (registry.get(id)) return 'published';
+  return getPlannedFeatures().find(f => f.id === id)?.stage || 'planning';
+}
+const extInstallState = () => store.get('extInstallState', {});
+/** registry 内置默认已安装；清单条目需显式安装（可被显式卸载覆盖）。 */
+export function isExtInstalled(id) {
+  const rec = extInstallState()[id];
+  if (rec && typeof rec.installed === 'boolean') return rec.installed;
+  return !!registry.get(id);
+}
+export function installExt(id) {
+  const all = extInstallState();
+  all[id] = { ...(all[id] || {}), installed: true, version: null, installedAt: Date.now() };
+  store.set('extInstallState', all);
+  bus.emit('route');
+}
+export function uninstallExt(id) {
+  const all = extInstallState();
+  all[id] = { ...(all[id] || {}), installed: false };
+  store.set('extInstallState', all);
+  const enabled = store.get('extEnabled', {}); delete enabled[id]; store.set('extEnabled', enabled);
+  const layout = getMenuLayout(); delete layout.placement[id]; saveMenuLayout(layout);
+  const themeStyle = getActiveThemeStyle();
+  if (themeStyle) {
+    const mounts = store.get('themeStyleMounts', {});
+    if (mounts[themeStyle.id]) {
+      for (const [point, extId] of Object.entries(mounts[themeStyle.id])) if (extId === id) delete mounts[themeStyle.id][point];
+      store.set('themeStyleMounts', mounts);
+    }
+  }
+  bus.emit('route');
+}
+/** 已安装但版本未确认时视为可更新；更新后写入清单版本。 */
+export function extNeedsUpdate(id) {
+  if (!isExtInstalled(id)) return false;
+  const feature = getPlannedFeatures().find(f => f.id === id);
+  return !!(feature && extInstallState()[id]?.version !== feature.version);
+}
+export function updateExt(id) {
+  if (!isExtInstalled(id)) return;
+  const feature = getPlannedFeatures().find(f => f.id === id);
+  const all = extInstallState();
+  all[id] = { ...(all[id] || {}), installed: true, version: feature?.version || '1.0.0', updatedAt: Date.now() };
+  store.set('extInstallState', all);
+  bus.emit('route');
+}
+/** 显式挂载：themeStyleMount 绑定、菜单 placement 声明或扩展自带 mounts。 */
+export function isExtMounted(id) {
+  const themeStyle = getActiveThemeStyle();
+  if (!themeStyle) return false;
+  if (Object.values(getThemeStyleMounts(themeStyle.id)).includes(id)) return true;
+  if (getMenuLayout().placement[id]) return true;
+  const ext = registry.get(id);
+  return !!(ext?.mounts?.length || (ext && (ext.group ?? 'main') !== 'main'));
+}
 
 /* 系统页面（内核自带：扩展中心 / 设置 / 详情），不可停用
  * meta: { title: string|ctx=>string, backLabel: string|ctx=>string, back: fn(ctx) }
@@ -296,7 +440,16 @@ export const getSystemMeta = id => systemMeta[id] || null;
 /* 扩展启用开关：默认关闭，需用户在扩展中心显式启用（初始为空工作台） */
 export function extEnabled(id) {
   const ext = registry.get(id);
-  if (!ext || ext.group === 'system') return true;
+  if (!ext) {
+    if (hasSystemPage(id)) return true;
+    // 清单扩展：未安装视为未启用；未知 id 保持原行为
+    if (getPlannedFeatures().some(f => f.id === id)) {
+      return isExtInstalled(id) && store.get('extEnabled', {})[id] === true;
+    }
+    return true;
+  }
+  if (ext.group === 'system') return true;
+  if (!isExtInstalled(id)) return false;
   return store.get('extEnabled', {})[id] === true;
 }
 export function setExtEnabled(id, on) {
@@ -312,90 +465,102 @@ export function setExtEnabled(id, on) {
 }
 
 /* ============================================================
-   6. 皮肤注册表（第二扩展维度）
+   6. 主题风格注册表（第二扩展维度）
    ============================================================ */
-export const skinRegistry = {
+export const themeStyleRegistry = {
   list: [],
-  add(skin) { this.list.push(skin); },
+  add(themeStyle) { this.list.push(themeStyle); },
   get(id) { return this.list.find(s => s.id === id); },
 };
-export function registerSkin(skin) { skinRegistry.add(skin); }
-export const getAllSkins = () => skinRegistry.list.slice();
+export function registerThemeStyle(themeStyle) { themeStyleRegistry.add(themeStyle); }
+export const getAllThemeStyles = () => themeStyleRegistry.list.slice();
 
-const DEFAULT_SKIN = 'classic';
-export function getActiveSkin() {
-  const id = store.get('skin', DEFAULT_SKIN);
-  return skinRegistry.get(id)
-    || skinRegistry.get(DEFAULT_SKIN)
-    || skinRegistry.list[0]
+const DEFAULT_THEME_STYLE = 'classic';
+export function getActiveThemeStyle() {
+  const id = store.get('themeStyle', DEFAULT_THEME_STYLE);
+  return themeStyleRegistry.get(id)
+    || themeStyleRegistry.get(DEFAULT_THEME_STYLE)
+    || themeStyleRegistry.list[0]
     || null;
 }
-export function setActiveSkin(id) {
-  if (!skinRegistry.get(id)) return;
-  store.set('skin', id);
-  document.body.dataset.skin = id;
-  bus.emit('skin', id);
+export function setActiveThemeStyle(id) {
+  if (!themeStyleRegistry.get(id)) return;
+  store.set('themeStyle', id);
+  document.body.dataset.themeStyle = id;
+  bus.emit('themeStyle', id);
   bus.emit('route');
 }
 
-/** 挂载配置：skinMounts[skinId][pointId] = extId（存系统偏好） */
-export function getSkinMounts(skinId) { return store.get('skinMounts', {})[skinId] || {}; }
-export function setSkinMount(skinId, pointId, extId) {
-  const all = store.get('skinMounts', {});
-  all[skinId] = all[skinId] || {};
-  if (extId) all[skinId][pointId] = extId;
-  else delete all[skinId][pointId];
-  store.set('skinMounts', all);
+/** 挂载配置：themeStyleMounts[themeStyleId][pointId] = extId（存系统偏好） */
+export function getThemeStyleMounts(themeStyleId) { return store.get('themeStyleMounts', {})[themeStyleId] || {}; }
+export function setThemeStyleMount(themeStyleId, pointId, extId) {
+  const all = store.get('themeStyleMounts', {});
+  all[themeStyleId] = all[themeStyleId] || {};
+  if (extId) all[themeStyleId][pointId] = extId;
+  else delete all[themeStyleId][pointId];
+  store.set('themeStyleMounts', all);
   bus.emit('route');
 }
-/** 解析挂载点：用户配置优先，回落皮肤 defaultExt */
-export function resolveMount(skin, point) {
-  return getSkinMounts(skin.id)[point.id] || point.defaultExt || null;
+/** 挂载点独立启用态：mountEnabled[themeStyleId][pointId] = false 表示停用；缺省视为启用。 */
+export function getMountEnabled(themeStyleId) { return store.get('mountEnabled', {})[themeStyleId] || {}; }
+/** 查询某挂载点是否启用（缺省启用）。 */
+export function mountEnabledOf(themeStyleId, pointId) { return getMountEnabled(themeStyleId)[pointId] !== false; }
+/** 设置某挂载点的启用态，仅影响该挂载点。 */
+export function setMountEnabled(themeStyleId, pointId, on) {
+  const all = store.get('mountEnabled', {});
+  all[themeStyleId] = all[themeStyleId] || {};
+  all[themeStyleId][pointId] = !!on;
+  store.set('mountEnabled', all);
+  bus.emit('route');
+}
+/** 解析挂载点：用户配置优先，回落主题风格 defaultExt */
+export function resolveMount(themeStyle, point) {
+  return getThemeStyleMounts(themeStyle.id)[point.id] || point.defaultExt || null;
 }
 
-/** 皮肤声明的挂载点 + 用户自定义挂载点；panels 皮肤未声明时回落到五区（兼容第三方皮肤）
- *  自定义点存 skinPoints[skinId]，供皮肤详情页增删；stage 皮肤渲染时据此新增实物。 */
-export function getSkinMountPoints(skin) {
-  if (!skin) return [];
-  const base = Array.isArray(skin.mountPoints) ? skin.mountPoints.slice()
-    : skin.layout === 'stage' ? []
-    : Object.entries(ZONES).map(([id, zone]) => ({
+/** 主题风格声明的挂载点 + 用户自定义挂载点；panels 主题风格未声明时回落到五区（兼容第三方主题风格）
+ *  自定义点存 themeStylePoints[themeStyleId]，供主题风格详情页增删；stage 主题风格渲染时据此新增实物。 */
+export function getThemeStyleMountPoints(themeStyle) {
+  if (!themeStyle) return [];
+  const base = Array.isArray(themeStyle.mountPoints) ? themeStyle.mountPoints.slice()
+    : themeStyle.layout === 'stage' ? []
+    : Object.entries(ZONES).filter(([id]) => id !== 'center').map(([id, zone]) => ({
         id,
         name: zone.label,
-        desc: zone.role === 'nav' ? '主菜单 · 一级入口'
-          : zone.role === 'content' ? '主内容区' : '扩展功能菜单',
+        desc: zone.role === 'nav' ? '主菜单 · 一级入口' : '扩展功能菜单',
         role: zone.role,
+        slots: slotsOfZone(id).map(s => s.id),
       }));
-  const extra = store.get('skinPoints', {})[skin.id] || [];
+  const extra = store.get('themeStylePoints', {})[themeStyle.id] || [];
   return base.concat(extra);
 }
-/** 自定义挂载点：仅能增删皮肤声明之外的点，内建点（defaultExt 声明）不可删 */
-export function getCustomSkinPoints(skinId) { return store.get('skinPoints', {})[skinId] || []; }
-export function addCustomSkinPoint(skinId, point) {
-  const all = store.get('skinPoints', {});
-  all[skinId] = all[skinId] || [];
-  if (all[skinId].some(p => p.id === point.id)) return false;
-  all[skinId].push(point);
-  store.set('skinPoints', all);
+/** 自定义挂载点：仅能增删主题风格声明之外的点，内建点（defaultExt 声明）不可删 */
+export function getCustomThemeStylePoints(themeStyleId) { return store.get('themeStylePoints', {})[themeStyleId] || []; }
+export function addCustomThemeStylePoint(themeStyleId, point) {
+  const all = store.get('themeStylePoints', {});
+  all[themeStyleId] = all[themeStyleId] || [];
+  if (all[themeStyleId].some(p => p.id === point.id)) return false;
+  all[themeStyleId].push(point);
+  store.set('themeStylePoints', all);
   bus.emit('route');
   return true;
 }
-export function updateCustomSkinPoint(skinId, pointId, patch) {
-  const all = store.get('skinPoints', {});
-  const point = (all[skinId] || []).find(p => p.id === pointId);
+export function updateCustomThemeStylePoint(themeStyleId, pointId, patch) {
+  const all = store.get('themeStylePoints', {});
+  const point = (all[themeStyleId] || []).find(p => p.id === pointId);
   if (!point) return false;
   Object.assign(point, patch);
-  store.set('skinPoints', all);
+  store.set('themeStylePoints', all);
   bus.emit('route');
   return true;
 }
-export function deleteCustomSkinPoint(skinId, pointId) {
-  const all = store.get('skinPoints', {});
-  if (!all[skinId]) return false;
-  all[skinId] = all[skinId].filter(p => p.id !== pointId);
-  store.set('skinPoints', all);
-  const mounts = store.get('skinMounts', {});
-  if (mounts[skinId]) { delete mounts[skinId][pointId]; store.set('skinMounts', mounts); }
+export function deleteCustomThemeStylePoint(themeStyleId, pointId) {
+  const all = store.get('themeStylePoints', {});
+  if (!all[themeStyleId]) return false;
+  all[themeStyleId] = all[themeStyleId].filter(p => p.id !== pointId);
+  store.set('themeStylePoints', all);
+  const mounts = store.get('themeStyleMounts', {});
+  if (mounts[themeStyleId]) { delete mounts[themeStyleId][pointId]; store.set('themeStyleMounts', mounts); }
   bus.emit('route');
   return true;
 }
@@ -443,17 +608,25 @@ export function openPopMenu(anchor, items) {
   buttons[0]?.focus();
 }
 
-/** 扩展在当前皮肤下的挂载位置文案：stage 按实物反查，panels 沿用五区编排 */
-export function mountLabelOfExt(skin, ext) {
-  const points = getSkinMountPoints(skin);
-  // skinMount 型挂载点（stage 实物 / classic 左栏底部）优先按用户配置反查
-  const skinMountPoint = points.find(p => p.via === 'skinMount' && resolveMount(skin, p) === ext.id);
-  if (skin?.layout === 'stage' || skinMountPoint) {
-    const point = skin?.layout === 'stage'
-      ? points.find(p => resolveMount(skin, p) === ext.id)
-      : skinMountPoint;
+/** 扩展在当前主题风格下的挂载位置文案：stage 按实物反查，panels 沿用五区编排 */
+export function mountLabelOfExt(themeStyle, ext) {
+  const points = getThemeStyleMountPoints(themeStyle);
+  // 用户显式挂载（含配置树写入的槽位级 pointId，如 left:mid）
+  const mounts = getThemeStyleMounts(themeStyle.id);
+  const pointId = Object.keys(mounts).find(p => mounts[p] === ext.id);
+  if (pointId) {
+    const point = points.find(p => p.id === pointId);
+    if (point) return { label: `${point.name} · ${themeStyle.name}`, pointId };
+    const [zone, slot] = pointId.split(':');
+    const slotName = slotsOfZone(zone).find(s => s.id === slot)?.name;
+    if (slotName) return { label: `${ZONES[zone]?.label || zone} · ${slotName}部`, pointId };
+    return { label: pointId, pointId };
+  }
+  // stage 实物由 defaultExt 声明挂载
+  if (themeStyle?.layout === 'stage') {
+    const point = points.find(p => resolveMount(themeStyle, p) === ext.id);
     return point
-      ? { label: `${point.name} · ${skin.name}`, pointId: point.id }
+      ? { label: `${point.name} · ${themeStyle.name}`, pointId: point.id }
       : { label: '未挂载', pointId: null };
   }
   const place = placementOf(ext);
@@ -470,21 +643,42 @@ export function mountLabelOfExt(skin, ext) {
 /* ============================================================
    7. 菜单布局（nav 区：left / top 的位置编排）
    ============================================================ */
-const defaultMenuLayout = () => ({
-  groups: [
-    { id: 'g-work', name: '工作', zone: 'left', collapsed: false },
-    { id: 'g-knowledge', name: '知识', zone: 'left', collapsed: false },
-    { id: 'g-tools', name: '工具', zone: 'left', collapsed: false },
-  ],
-  placement: {},
-});
+// v1 曾预置三个空文件夹；默认工作台不预置任何分组，存量数据也一并过滤
+const LEGACY_GROUP_IDS = ['g-work', 'g-knowledge', 'g-tools'];
+const defaultMenuLayout = () => ({ groups: [], placement: {} });
 export function getMenuLayout() {
   const layout = store.get('menuLayout', { groups: [], placement: {} });
   for (const group of layout.groups) if (!group.zone) group.zone = 'left'; // 迁移旧数据
+  layout.groups = layout.groups.filter(g => !LEGACY_GROUP_IDS.includes(g.id));
   if (!layout.groups.length && !Object.keys(layout.placement).length) return defaultMenuLayout();
   return layout;
 }
 function saveMenuLayout(layout) { store.set('menuLayout', layout); bus.emit('route'); }
+
+/** 挂载配置快照：供主题风格详情页做草稿编辑；应用时一次性写回。 */
+export function getConfigSnapshot(themeStyleId) {
+  const clone = v => JSON.parse(JSON.stringify(v));
+  return {
+    menuLayout: clone(getMenuLayout()),
+    themeStyleMounts: clone(getThemeStyleMounts(themeStyleId)),
+    themeStylePoints: clone(getCustomThemeStylePoints(themeStyleId)),
+    extEnabled: clone(store.get('extEnabled', {})),
+    mountEnabled: clone(store.get('mountEnabled', {})),
+  };
+}
+/** 应用挂载配置快照：写回菜单分组 / 挂载点 / 扩展启用态并触发全局重渲染。 */
+export function applyConfigSnapshot(themeStyleId, snap) {
+  store.set('menuLayout', snap.menuLayout);
+  const mounts = store.get('themeStyleMounts', {});
+  mounts[themeStyleId] = snap.themeStyleMounts;
+  store.set('themeStyleMounts', mounts);
+  const points = store.get('themeStylePoints', {});
+  points[themeStyleId] = snap.themeStylePoints;
+  store.set('themeStylePoints', points);
+  store.set('extEnabled', snap.extEnabled);
+  store.set('mountEnabled', snap.mountEnabled || {});
+  bus.emit('route');
+}
 
 /** place: null(左侧主菜单) | {zone:'top'} | {zone:'left'|'top', slot:'group:<gid>'} */
 export function setPlacement(extId, place) {
@@ -529,7 +723,7 @@ export function placementOf(ext) {
 /** 侧栏可视顺序：left 主菜单 → left 分组 → top */
 export const navExts = () => {
   const layout = getMenuLayout();
-  const enabled = registry.list.filter(e => extEnabled(e.id) && (e.group ?? 'main') !== 'soon');
+  const enabled = registry.list.filter(e => isExtInstalled(e.id) && extEnabled(e.id) && (e.group ?? 'main') !== 'soon');
   const ordered = enabled.filter(e => {
     const p = placementOf(e);
     return p.zone === 'left' && p.slot === 'main';
@@ -597,12 +791,12 @@ export function placementPicker(ext, onDone) {
 }
 
 /* ============================================================
-   8. 主题
+   8. 主题色
    ============================================================ */
-export const themeNames = { dark: '深色', light: '浅色', terminal: '终端', oled: 'OLED' };
-export function applyTheme(theme) {
-  document.body.dataset.theme = theme;
-  store.set('theme', theme);
+export const themeColorNames = { dark: '深色', light: '浅色', terminal: '终端', oled: 'OLED' };
+export function applyThemeColor(themeColor) {
+  document.body.dataset.themeColor = themeColor;
+  store.set('themeColor', themeColor);
 }
 
 /* ============================================================
@@ -655,6 +849,53 @@ function applyHash() {
   return true;
 }
 
+/* ============================================================
+   未应用草稿的离开守卫：页面注册自己的判定与处理方式，导航统一询问
+   ============================================================ */
+const unappliedGuards = new Set();
+
+/** 注册一个离开守卫；返回注销函数。isActive 限定页面，apply 返回 false 表示应用失败需留在原页。 */
+export function registerUnappliedGuard(guard) {
+  unappliedGuards.add(guard);
+  return () => unappliedGuards.delete(guard);
+}
+
+/** 三选项确认：应用并离开 / 放弃修改并离开 / 取消；遮罩与 Esc 关闭等同取消。 */
+export function confirmUnapplied() {
+  return new Promise(resolve => {
+    let settled = false;
+    const finish = choice => { if (!settled) { settled = true; resolve(choice); } };
+    openModal('有未应用的修改',
+      el('p', { class: 'hint' }, '离开后未应用的更改将丢失，请选择如何处理。'),
+      [
+        { label: '取消', onClick: close => { finish(false); close(); } },
+        { label: '放弃修改并离开', danger: true, onClick: close => { finish('discard'); close(); } },
+        { label: '应用并离开', primary: true, onClick: close => { finish('apply'); close(); } },
+      ],
+      () => finish(false));
+  });
+}
+
+/** 无草稿时同步放行，有草稿时返回用户选择后的 Promise<boolean>。 */
+export function guardUnappliedNavigation() {
+  const pending = [...unappliedGuards].filter(g => {
+    try { return g.isActive() && g.isDirty(); } catch { return false; }
+  });
+  if (!pending.length) return true;
+  return confirmUnapplied().then(choice => {
+    if (choice === false) return false;
+    const results = pending.map(g => (choice === 'apply' ? g.apply() : g.discard()));
+    return results.every(r => r !== false);
+  });
+}
+
+/** 导航入口统一走这里：确认后才真正改路由，取消则保持当前页面与 URL。 */
+function navigateGuarded(change) {
+  const verdict = guardUnappliedNavigation();
+  if (verdict === true) change();
+  else verdict.then(ok => { if (ok) change(); });
+}
+
 /** 同步菜单按钮文案，准确反映当前左栏是展开还是收起。 */
 function syncNavToggleLabel() {
   const btn = document?.getElementById?.('navToggle');
@@ -673,24 +914,28 @@ export const router = {
   extId: null, mode: 'home', id: null,
   go(extId) {
     if (!extEnabled(extId) && !hasSystemPage(extId)) return;
-    this.extId = extId;
-    this.mode = 'home';
-    this.id = null;
-    document.body.classList.remove('nav-open');
-    syncNavToggleLabel();
-    syncHash();
-    bus.emit('route');
+    navigateGuarded(() => {
+      this.extId = extId;
+      this.mode = 'home';
+      this.id = null;
+      document.body.classList.remove('nav-open');
+      syncNavToggleLabel();
+      syncHash();
+      bus.emit('route');
+    });
   },
   open(extId, detailId) {
-    this.extId = extId;
-    this.mode = 'detail';
-    this.id = detailId;
-    syncHash();
-    bus.emit('route');
+    navigateGuarded(() => {
+      this.extId = extId;
+      this.mode = 'detail';
+      this.id = detailId;
+      syncHash();
+      bus.emit('route');
+    });
   },
-  home() { this.mode = 'home'; this.id = null; syncHash(); bus.emit('route'); },
-  /** 回到皮肤主舞台（stage 皮肤专用） */
-  back() { this.extId = null; this.mode = 'home'; this.id = null; syncHash(); bus.emit('route'); },
+  home() { navigateGuarded(() => { this.mode = 'home'; this.id = null; syncHash(); bus.emit('route'); }); },
+  /** 回到主题风格主舞台（stage 主题风格专用） */
+  back() { navigateGuarded(() => { this.extId = null; this.mode = 'home'; this.id = null; syncHash(); bus.emit('route'); }); },
 };
 
 /** 当前是否为扩展独立窗口（专注模式）：URL 带 focus=1。 */
@@ -757,11 +1002,11 @@ function renderLeft() {
   }
 
   box.append(el('div', { class: 'nav-spacer' }));
-  // 左侧栏底部挂载点：展示其绑定的扩展（走 getSkinMounts/resolveMount，与皮肤详情配置同源）
-  const skin = getActiveSkin();
-  const slot = getSkinMountPoints(skin).find(p => p.id === 'left-bottom');
-  const slotExtId = slot ? resolveMount(skin, slot) : null;
-  if (slotExtId) {
+  // 左侧栏底部挂载点：展示其绑定的扩展（走 getThemeStyleMounts/resolveMount，与主题风格详情配置同源）
+  const themeStyle = getActiveThemeStyle();
+  const slot = getThemeStyleMountPoints(themeStyle).find(p => p.id === 'left-bottom');
+  const slotExtId = slot ? resolveMount(themeStyle, slot) : null;
+  if (slotExtId && extEnabled(slotExtId) && mountEnabledOf(themeStyle.id, slot.id)) {
     const ext = registry.get(slotExtId);
     const planned = getPlannedFeatures().find(f => f.id === slotExtId);
     const sys = slotExtId === 'ext-center' ? '扩展中心' : slotExtId === 'settings' ? '设置' : null;
@@ -791,11 +1036,11 @@ function renderCenter() {
   if (!box) return;
   box.innerHTML = '';
   const ctx = { ext: router.extId, mode: router.mode, id: router.id };
-  const skin = getActiveSkin();
+  const themeStyle = getActiveThemeStyle();
 
-  // 未选中扩展：stage 皮肤接管舞台
-  if (!router.extId && skin?.renderStage) {
-    box.append(skin.renderStage(ctx));
+  // 未选中扩展：stage 主题风格接管舞台
+  if (!router.extId && themeStyle?.renderStage) {
+    box.append(themeStyle.renderStage(ctx));
     box.scrollTop = 0;
     return;
   }
@@ -809,9 +1054,9 @@ function renderCenter() {
   const ext = registry.get(router.extId);
   if (!ext) {
     const planned = getPlannedFeatures().find(f => f.id === router.extId);
-    if (skin?.renderStage) {
+    if (themeStyle?.renderStage) {
       box.append(el('button', { class: 'stage-back', onclick: () => router.back() },
-        el('span', { class: 'icon', html: icons.back }), `返回${skin.name}`));
+        el('span', { class: 'icon', html: icons.back }), `返回${themeStyle.name}`));
       box.append(el('div', { class: 'empty-shell' },
         el('div', { class: 'empty-shell-mark', html: icons.puzzle }),
         el('h2', {}, planned ? `「${planned.name}」规划中` : '未知视图'),
@@ -835,10 +1080,10 @@ function renderCenter() {
     : ext.home ? ext.home(ctx)
     : el('div', { class: 'empty' }, '该扩展尚未提供内容视图');
 
-  // stage 皮肤下：扩展视图统一带"返回舞台"条（独立窗口无舞台，不显示）
-  if (!isFocusMode() && skin?.renderStage && skin.stageBack !== false) {
+  // stage 主题风格下：扩展视图统一带"返回舞台"条（独立窗口无舞台，不显示）
+  if (!isFocusMode() && themeStyle?.renderStage && themeStyle.stageBack !== false) {
     box.append(el('button', { class: 'stage-back', onclick: () => router.back() },
-      el('span', { class: 'icon', html: icons.back }), `返回${skin.name}`));
+      el('span', { class: 'icon', html: icons.back }), `返回${themeStyle.name}`));
   }
   // 扩展 1 级页面（home）才提供"独立窗口打开"入口；2 级详情页不注入。
   // 独立窗口内自身已是目标视图，也不重复注入。
@@ -857,19 +1102,19 @@ function renderCenter() {
   box.scrollTop = 0;
 }
 
-/** 返回挂载到某个 entry 区（right/bottom）的已启用扩展，去重。来源：菜单编排 + 皮肤挂载点。 */
+/** 返回挂载到某个 entry 区（right/bottom）的已启用扩展，去重。来源：菜单编排 + 主题风格挂载点。 */
 export function entryExts(zone) {
-  const skin = getActiveSkin();
+  const themeStyle = getActiveThemeStyle();
   const ids = new Set();
   registry.list.forEach(ext => {
     if (!extEnabled(ext.id)) return;
     if (placementOf(ext).zone === zone) ids.add(ext.id);
   });
-  getSkinMountPoints(skin)
+  getThemeStyleMountPoints(themeStyle)
     .filter(p => p.id === zone)
     .forEach(p => {
-      const id = resolveMount(skin, p);
-      if (id && extEnabled(id) && registry.get(id)) ids.add(id);
+      const id = resolveMount(themeStyle, p);
+      if (id && extEnabled(id) && mountEnabledOf(themeStyle.id, p.id) && registry.get(id)) ids.add(id);
     });
   return [...ids].map(id => registry.get(id));
 }
@@ -937,15 +1182,26 @@ function renderBottom() {
     label.before(btn);
   });
   const sc = getShortcuts();
-  const hints = { hintSwitchExt: sc.switchExt, hintBack: sc.back, hintSettings: sc.settings };
+  const hints = { hintBack: sc.back, hintSettings: sc.settings };
   for (const [id, combo] of Object.entries(hints)) {
     const node = $(id);
     if (node) node.textContent = hintOf(combo);
   }
+  // 底部只提示用户实际绑定过的扩展快捷键（取第一个，避免拥挤）
+  const extHint = $('hintExtShortcut');
+  if (extHint) {
+    const [extId, combo] = Object.entries(getExtShortcuts())[0] || [];
+    extHint.hidden = !extId;
+    if (extId) {
+      const key = $('hintExtKey'), name = $('hintExtName');
+      if (key) key.textContent = hintOf(combo);
+      if (name) name.textContent = registry.get(extId)?.name || extId;
+    }
+  }
 }
 
-/** 把皮肤布局模式 + 页面类型写到 body（CSS 据此切换五区显隐/尺寸）
- *  data-page=system：设置/扩展中心/皮肤详情等系统页，隐藏一级工作台元素（左栏导航/顶部挂载/底部状态条/顶栏用户入口）
+/** 把主题风格布局模式 + 页面类型写到 body（CSS 据此切换五区显隐/尺寸）
+ *  data-page=system：设置/扩展中心/主题风格详情等系统页，隐藏一级工作台元素（左栏导航/顶部挂载/底部状态条/顶栏用户入口）
  */
 /**
  * 顶栏二级页导航：系统页时用「返回 + 标题」替换 brand。
@@ -955,7 +1211,11 @@ function syncSystemTopBar(isSystem) {
   const bar = $('topSystem');
   if (!bar) return;
   bar.setAttribute('aria-hidden', String(!isSystem));
-  if (!isSystem) return;
+  const actionsHost = $('topPageActions');
+  if (!isSystem) {
+    if (actionsHost) actionsHost.replaceChildren();
+    return;
+  }
   const ctx = { ext: router.extId, mode: router.mode, id: router.id };
   const meta = getSystemMeta(router.extId) || {};
   const title = typeof meta.title === 'function' ? meta.title(ctx) : (meta.title || '');
@@ -970,12 +1230,16 @@ function syncSystemTopBar(isSystem) {
     backBtn.setAttribute('aria-label', label);
     backBtn.onclick = () => (typeof meta.back === 'function' ? meta.back(ctx) : leaveSystem());
   }
+  if (actionsHost) {
+    const action = typeof meta.topActions === 'function' ? meta.topActions(ctx) : null;
+    actionsHost.replaceChildren(...(action ? [action] : []));
+  }
 }
 
-export function applySkinLayout() {
-  const skin = getActiveSkin();
-  document.body.dataset.skin = skin?.id || DEFAULT_SKIN;
-  document.body.dataset.skinLayout = skin?.layout || 'panels';
+export function applyThemeStyleLayout() {
+  const themeStyle = getActiveThemeStyle();
+  document.body.dataset.themeStyle = themeStyle?.id || DEFAULT_THEME_STYLE;
+  document.body.dataset.themeStyleLayout = themeStyle?.layout || 'panels';
   const isSystem = hasSystemPage(router.extId);
   document.body.dataset.page = isSystem ? 'system' : 'work';
   // 系统页隐藏了用户头像入口；若面板仍开着（如用 ⌘, 进入），一并关闭避免浮层残留
@@ -985,11 +1249,11 @@ export function applySkinLayout() {
 
 /** 退出系统页回工作台：stage 回舞台，panels 进首个导航扩展 */
 export function leaveSystem() {
-  const skin = getActiveSkin();
-  if (skin?.renderStage) { router.back(); return; }
+  const themeStyle = getActiveThemeStyle();
+  if (themeStyle?.renderStage) { router.back(); return; }
   const first = navExts()[0];
   if (first) router.go(first.id);
-  else { router.extId = null; router.mode = 'home'; router.id = null; bus.emit('route'); }
+  else router.back();
 }
 
 /* ---------- 数据变更重绘：保留焦点、光标位置与滚动位置 ----------
@@ -1042,7 +1306,7 @@ function renderPreservingUi() {
  * 按领域精确重绘（可选优化）：扩展声明 `domains: ['todos', ...]` 表示 center / right 只依赖这些域。
  * 当前是该扩展的 home / detail 页，且本次变更的域不在声明里，则只刷新 left / top / bottom
  * （角标与状态条可能依赖任意域），center / right 保持原样，不打断输入。
- * 未声明 domains、系统页、stage 皮肤、批量事件（hydrate / 无 key）一律整体重绘，行为与以前一致。
+ * 未声明 domains、系统页、stage 主题风格、批量事件（hydrate / 无 key）一律整体重绘，行为与以前一致。
  */
 export function dataRenderScope(event, route = router) {
   const key = event?.key;
@@ -1054,13 +1318,13 @@ export function dataRenderScope(event, route = router) {
 }
 function onData(event) {
   if (dataRenderScope(event) === 'all') { renderPreservingUi(); return; }
-  applySkinLayout();
+  applyThemeStyleLayout();
   renderLeft();
   renderTop();
   renderBottom();
 }
 function renderAll() {
-  applySkinLayout();
+  applyThemeStyleLayout();
   renderLeft();
   renderTop();
   renderCenter();
@@ -1082,17 +1346,17 @@ export function openUserPanel() {
   const anchor = $('btnUser');
   const rect = anchor.getBoundingClientRect();
   const order = ['dark', 'light', 'terminal', 'oled'];
-  const current = document.body.dataset.theme || 'dark';
-  const themeRow = el('button', { class: 'user-pop-row', onclick: () => {
-    // 每次点击都读取当前主题，不能用打开面板时捕获的 current（否则只能切换一次）
-    const active = document.body.dataset.theme || current;
+  const current = document.body.dataset.themeColor || 'dark';
+  const themeColorRow = el('button', { class: 'user-pop-row', onclick: () => {
+    // 每次点击都读取当前主题色，不能用打开面板时捕获的 current（否则只能切换一次）
+    const active = document.body.dataset.themeColor || current;
     const next = order[(order.indexOf(active) + 1) % order.length];
-    applyTheme(next);
-    themeRow.querySelector('.user-pop-value').textContent = themeNames[next];
+    applyThemeColor(next);
+    themeColorRow.querySelector('.user-pop-value').textContent = themeColorNames[next];
   } },
     el('span', { class: 'icon', html: icons.info }),
-    el('span', { class: 'user-pop-label' }, '主题'),
-    el('span', { class: 'user-pop-value' }, themeNames[current]),
+    el('span', { class: 'user-pop-label' }, '主题色'),
+    el('span', { class: 'user-pop-value' }, themeColorNames[current]),
     el('span', { class: 'user-pop-arrow' }, '›'));
 
   const pop = el('div', { class: 'user-pop', id: 'userPop' },
@@ -1106,7 +1370,7 @@ export function openUserPanel() {
       el('span', { class: 'icon', html: icons.puzzle }),
       el('span', { class: 'user-pop-label' }, '扩展中心'),
       el('span', { class: 'user-pop-arrow' }, '›')),
-    themeRow,
+    themeColorRow,
     el('button', { class: 'user-pop-row', onclick: () => { closeUserPop(); router.go('settings'); } },
       el('span', { class: 'icon', html: icons.settings }),
       el('span', { class: 'user-pop-label' }, '设置'),
@@ -1296,7 +1560,7 @@ function initZoneResizers() {
    11. 启动
    ============================================================ */
 export function boot() {
-  applyTheme(store.get('theme', 'dark'));
+  applyThemeColor(store.get('themeColor', 'dark'));
   initZoneResizers();
   if (isFocusMode()) document.body.dataset.focus = '1';
   // localStorage 镜像写入失败（配额满等）：SQLite 仍可保存，仅提示一次，避免用户无感知
@@ -1306,7 +1570,7 @@ export function boot() {
     warned = true;
     toast('本地缓存写入失败（空间不足？）。请到 设置 → 数据与备份 导出备份');
   });
-  applySkinLayout();
+  applyThemeStyleLayout();
 
   $('btnUser')?.addEventListener('click', openUserPanel);
   $('btnRefresh')?.addEventListener('click', refreshAllData);
@@ -1329,7 +1593,11 @@ export function boot() {
 
   bus.on('route', renderAll);
   bus.on('data', onData);
-  window.addEventListener('hashchange', applyHash);
+  window.addEventListener('hashchange', () => {
+    const verdict = guardUnappliedNavigation();
+    if (verdict === true) { applyHash(); return; }
+    verdict.then(ok => { if (ok) applyHash(); else syncHash(); });
+  });
 
   document.addEventListener('keydown', event => {
     const typing = /^(INPUT|TEXTAREA)$/.test(document.activeElement?.tagName || '');
@@ -1345,8 +1613,8 @@ export function boot() {
       event.preventDefault();
       // 独立窗口没有舞台，Esc 只在扩展内 detail→home，不回舞台留下空白
       if (isFocusMode()) { if (router.mode === 'detail') router.home(); return; }
-      const skin = getActiveSkin();
-      if (skin?.renderStage && router.extId) { router.back(); return; }
+      const themeStyle = getActiveThemeStyle();
+      if (themeStyle?.renderStage && router.extId) { router.back(); return; }
       if (router.mode === 'detail') router.home();
       return;
     }
@@ -1355,18 +1623,24 @@ export function boot() {
       router.go('settings');
       return;
     }
-    if (!typing && matchShortcut(event, sc.switchExt)) {
-      event.preventDefault();
-      const ext = navExts()[Number(event.key) - 1];
-      if (ext) router.go(ext.id);
+    // 扩展快捷键：用户为具体扩展绑定，按下即打开该扩展
+    if (!typing) {
+      for (const [key, combo] of Object.entries(sc)) {
+        if (!key.startsWith(EXT_PREFIX) || !matchShortcut(event, combo)) continue;
+        const extId = key.slice(EXT_PREFIX.length);
+        if (!extEnabled(extId) || !registry.get(extId)) continue;
+        event.preventDefault();
+        router.go(extId);
+        return;
+      }
     }
   });
 
-  const skin = getActiveSkin();
-  // 优先按 URL 直达；stage 皮肤下 hash 无效时才回舞台
+  const themeStyle = getActiveThemeStyle();
+  // 优先按 URL 直达；stage 主题风格下 hash 无效时才回舞台
   if (applyHash()) return;
-  if (skin?.renderStage) {
-    router.back(); // stage 皮肤：启动即展示主舞台
+  if (themeStyle?.renderStage) {
+    router.back(); // stage 主题风格：启动即展示主舞台
   } else {
     const first = navExts()[0];
     if (first) router.go(first.id);
