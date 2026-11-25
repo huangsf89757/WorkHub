@@ -6,7 +6,6 @@
  */
 import {
   el, registry, icons, router, pageHeader, openModal, input, toast, bus, field,
-  rightPanelOpen, toggleRightPanel,
 } from './core.js';
 import {
   state, declareDomain, insert, update, remove, alive, byId,
@@ -31,8 +30,8 @@ const TODO_README = [
   '| `badge()` | left / top 导航 | 未完成任务数（0 时不显示） |',
   '| `home(ctx)` | center | 主列表：视图切换、工具栏、分组任务 |',
   '| `detail(id,ctx)` | center | 单条待办编辑：标题/日期/分组/优先级/标签胶囊/备注/完成态 |',
-  '| `panel(ctx)` | right | 统计：待完成/已完成/已逾期/完成率 + 分组分布 |',
-  '| `status(ctx)` | bottom | `N 待办未完成 · M 逾期` |',
+  '',
+  '统计（待完成/已完成/已逾期/完成率 + 分组分布）直接展示在 center 主页顶部；四边侧栏只挂扩展入口。',
   '',
   '注册元数据：`id=todo`、`order=1.9`、`group=main`、`mounts=[left]`。',
   '',
@@ -60,7 +59,7 @@ const TODO_README = [
   '| `meta` | object | `{updatedAt, updatedBy, deletedAt, rev}`；分组记录另有 `name/sort/created` |',
   '',
   '分组表为完整同步表（四同步列齐备）；`sort` 为记录字段，可随 LWW 同步。',
-  '删除走 `remove()` 软删除墓碑；分组删除时组内待办先移到默认组再软删分组。',
+  '删除走 `remove()` 软删除墓碑。所有分组均为真实记录，无虚拟未分组：无分组时新建任务自动创建“默认”组；删除分组连带删除组内待办（二次确认）。',
   '',
   '## 4. 视图与交互',
   '',
@@ -175,12 +174,33 @@ function openMenu(anchor, items) {
 /* ============================================================
    操作
    ============================================================ */
+/**
+ * 纯函数：新建任务时决定归属分组 id。
+ * 无真实分组 → 返回 null（调用方自动建"默认"组）；有分组 → 选中 id 有效则用，否则回退第一个。
+ */
+export function ensureGroupForNewTask(groups, selectedId) {
+  if (!groups || groups.length === 0) return null;
+  return groups.some(g => g.id === selectedId) ? selectedId : groups[0].id;
+}
+
+/** 纯函数：返回属于指定分组的待办 id 列表（删除分组连带删除用） */
+export function todoIdsInGroup(todos, groupId) {
+  return todos.filter(t => t.groupId === groupId).map(t => t.id);
+}
+
 function addTodo(title, groupId = '', priority = 'medium', due = null, start = null, extra = {}) {
   if (!title?.trim()) return;
+  const groups = alive('todoGroups');
+  let targetGroupId = ensureGroupForNewTask(groups, groupId);
+  if (targetGroupId === null) {
+    // 无任何分组：自动创建一个真实的"默认"分组并归属它
+    const id = insert('todoGroups', { name: '默认', sort: 0, created: Date.now() });
+    targetGroupId = typeof id === 'string' ? id : (id?.id ?? '');
+  }
   insert('todos', {
     title: title.trim(), done: false, priority, start, due,
     note: extra.note || '', tags: Array.isArray(extra.tags) ? extra.tags : [],
-    groupId, created: Date.now(), completedAt: null,
+    groupId: targetGroupId, created: Date.now(), completedAt: null,
   });
 }
 
@@ -240,14 +260,13 @@ function askRenameGroup(id, oldName) {
   ]);
 }
 
-/** 删除自定义分组：组内待办先移到默认组，再软删分组 */
+/** 删除分组：连带软删组内所有待办（调用方已二次确认），再软删分组 */
 function deleteGroup(id, name) {
-  for (const todo of alive('todos').filter(t => t.groupId === id)) {
-    update('todos', todo.id, { groupId: '' });
-  }
+  const ids = todoIdsInGroup(alive('todos'), id);
+  for (const todoId of ids) remove('todos', todoId);
   remove('todoGroups', id);
   bus.emit('route');
-  toast(`分组「${name}」已删除，待办已移到默认组`);
+  toast(`分组「${name}」及其 ${ids.length} 条待办已删除`);
 }
 
 /**
@@ -325,9 +344,10 @@ function todoFields({ title, start, due, priority, group, tags, note }) {
 /** 新建任务弹窗：与待办详情使用相同的字段结构与顺序 */
 function askNewTask() {
   const title = input({ placeholder: '输入任务标题…', maxlength: 120 });
+  const groups = alive('todoGroups');
   const group = el('select', { class: 'input select' },
-    el('option', { value: '' }, '默认'),
-    ...alive('todoGroups').map(g => el('option', { value: g.id }, g.name)));
+    ...groups.map(g => el('option', { value: g.id }, g.name)));
+  group.disabled = groups.length === 0; // 无分组时由 addTodo 自动建"默认"组
   const priority = el('select', { class: 'input select' },
     ...Object.entries(PRIO_LABEL).map(([key, label]) => el('option', { value: key }, label)));
   priority.value = 'medium';
@@ -373,17 +393,12 @@ function filtered() {
 
 function sections(todos) {
   if (groupBy === 'group') {
-    // 自定义分组按 sort 升序；默认分组置顶固定、不参与拖动
+    // 所有分组均为真实记录（无虚拟默认组），按 sort 升序，全部可拖动
     const groups = alive('todoGroups').slice().sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0));
-    const list = groups.map(g => ({
+    return groups.map(g => ({
       id: 'g:' + g.id, name: g.name, groupId: g.id,
       todos: todos.filter(t => t.groupId === g.id),
     }));
-    list.unshift({
-      id: 'ungrouped', name: '默认', groupId: '',
-      todos: todos.filter(t => !t.groupId || !groups.some(g => g.id === t.groupId)),
-    });
-    return list;
   }
   if (groupBy === 'priority') {
     return Object.entries(PRIO_LABEL).map(([key, label]) => ({
@@ -472,13 +487,24 @@ function inlineNew(sec) {
   return wrap;
 }
 
+/** 列标题行：与任务行共用 grid 模板，严格对齐；仅自定义分组视图显示 */
+function headerRow() {
+  return el('div', { class: 'todo-header-row', style: gridStyle(), 'aria-hidden': 'true' },
+    el('span'),                                   // 手柄列
+    el('span'),                                   // 复选框列
+    el('span'),                                   // 优先级列
+    el('span', { class: 'todo-head-label' }, '标题'),
+    ...visibleCols().map(c => el('span', { class: 'todo-head-label' }, c.label)),
+    el('span'));                                  // 删除列
+}
+
 /**
  * 纯函数：从 DOM 顺序的 group id 列表生成 sort 映射。
- * 过滤掉置顶的默认组（'__default__'），自定义分组 sort 从 0 连续编号。
+ * 过滤空 id（无虚拟默认组），所有真实分组 sort 从 0 连续编号。
  */
 export function sortOrdersFromDomIds(domIds) {
   const orders = new Map();
-  domIds.filter(id => id && id !== '__default__').forEach((id, i) => orders.set(id, i));
+  domIds.filter(id => id).forEach((id, i) => orders.set(id, i));
   return orders;
 }
 
@@ -571,7 +597,7 @@ function sectionNode(sec) {
           { label: '重命名', onClick: () => askRenameGroup(sec.groupId, sec.name) },
           { label: '删除', danger: true, onClick: () => confirmDialog({
             title: '删除分组',
-            message: `删除分组「${sec.name}」？组内待办将移到默认组。`,
+            message: `删除分组「${sec.name}」？组内 ${sec.todos.length} 条待办将一并删除，不可撤销。`,
             onConfirm: () => deleteGroup(sec.groupId, sec.name),
           }) },
         ]),
@@ -587,7 +613,7 @@ function sectionNode(sec) {
 
   const groupNode = el('div', {
     class: 'todo-group',
-    'data-group-id': sec.groupId || '__default__',
+    'data-group-id': sec.groupId,
   }, headRow, body);
   return groupNode;
 }
@@ -617,6 +643,30 @@ function toolbar() {
         onClick: () => { groupBy = key; collapsed.clear(); bus.emit('route'); },
       }))),
     }, el('span', { class: 'icon', html: icons.folder }), '分组：' + GROUP_LABEL[groupBy]));
+}
+
+/** 统计卡片：原 right.panel() 与 bottom.status() 的内容，现统一在 center 主页展示。 */
+function statsCard() {
+  const items = alive('todos');
+  const done = items.filter(t => t.done).length;
+  const pending = items.length - done;
+  const late = items.filter(isLate).length;
+  const groups = alive('todoGroups');
+  const rate = items.length ? Math.round(done / items.length * 100) : 0;
+  const row = (key, value) => el('div', { class: 'insp-row' },
+    el('span', { class: 'insp-key' }, key), el('span', { class: 'insp-val' }, String(value)));
+
+  return el('div', { class: 'todo-stats-card' },
+    el('div', { class: 'todo-stats-summary' },
+      `${pending} 待办未完成${late ? ` · ${late} 逾期` : ''}`),
+    el('div', { class: 'todo-stats-grid' },
+      el('div', { class: 'insp-section' },
+        el('div', { class: 'insp-label' }, '概览'),
+        row('待完成', pending), row('已完成', done), row('已逾期', late), row('完成率', rate + '%')),
+      el('div', { class: 'insp-section' },
+        el('div', { class: 'insp-label' }, '分组分布'),
+        ...groups.map(g => row(g.name, items.filter(t => t.groupId === g.id).length)),
+        row('默认', items.filter(t => !t.groupId).length))));
 }
 
 /* ============================================================
@@ -658,18 +708,11 @@ registry.add({
     initSortables(body); // SortableJS：分组排序 + 任务跨组拖动（仅自定义分组视图）
 
     return el('div', { class: 'page todo-page' },
-      pageHeader({
-        title: 'TODO',
-        actions: [el('button', {
-          class: 'tag tag-btn' + (rightPanelOpen() ? ' active' : ''),
-          title: '展开/收起右侧功能面板',
-          'aria-label': `展开或收起右侧面板，${alive('todos').filter(t => !t.done).length} 项待完成`,
-          'aria-pressed': String(rightPanelOpen()),
-          onclick: toggleRightPanel,
-        }, `${alive('todos').filter(t => !t.done).length} 待完成`)],
-      }),
+      pageHeader({ title: 'TODO' }),
+      statsCard(),
       toolbar(),
       tabs,
+      groupBy === 'group' ? headerRow() : null,
       body);
   },
 
@@ -716,9 +759,13 @@ registry.add({
     const start = dateInput(todo.start, value => update('todos', id, { start: value }));
     const due = dateInput(todo.due, value => update('todos', id, { due: value }));
 
+    const aliveGroups = alive('todoGroups');
+    // 归属组不在列表（异常/旧数据）时补一个只读占位，避免选中态丢失
+    if (todo.groupId && !aliveGroups.some(g => g.id === todo.groupId)) {
+      aliveGroups.push({ id: todo.groupId, name: '（原分组已删除）' });
+    }
     const group = el('select', { class: 'input select' },
-      el('option', { value: '' }, '默认'),
-      ...alive('todoGroups').map(g => {
+      ...aliveGroups.map(g => {
         const option = el('option', { value: g.id }, g.name);
         if (todo.groupId === g.id) option.selected = true;
         return option;
@@ -751,30 +798,4 @@ registry.add({
         ...todoFields({ title, priority, start, due, group, tags, note })));
   },
 
-  panel() {
-    const items = alive('todos');
-    const done = items.filter(t => t.done).length;
-    const pending = items.length - done;
-    const late = items.filter(isLate).length;
-    const groups = alive('todoGroups');
-    const row = (key, value) => el('div', { class: 'insp-row' },
-      el('span', { class: 'insp-key' }, key), el('span', { class: 'insp-val' }, String(value)));
-
-    return el('div', {},
-      el('div', { class: 'insp-section' },
-        el('div', { class: 'insp-label' }, '概览'),
-        row('待完成', pending), row('已完成', done), row('已逾期', late),
-        row('完成率', (items.length ? Math.round(done / items.length * 100) : 0) + '%')),
-      el('div', { class: 'insp-section' },
-        el('div', { class: 'insp-label' }, '分组分布'),
-        ...groups.map(g => row(g.name, items.filter(t => t.groupId === g.id).length)),
-        row('默认', items.filter(t => !t.groupId).length)));
-  },
-
-  status() {
-    const items = alive('todos');
-    const pending = items.filter(t => !t.done).length;
-    const late = items.filter(isLate).length;
-    return `${pending} 待办未完成${late ? ` · ${late} 逾期` : ''}`;
-  },
 });
