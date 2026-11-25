@@ -6,7 +6,7 @@
  */
 import {
   el, registry, icons, router, pageHeader, openModal, input, toast, bus, field, refreshAllData, openPopMenu,
-  extHomePage, extToolbar, extToolButton, extTabs,
+  extHomePage, extToolbar, extToolButton, extTabs, store,
 } from './core.js';
 import {
   state, declareDomain, insert, update, remove, alive, byId,
@@ -68,7 +68,7 @@ const TODO_README = [
   '',
   '- 工具栏「新建」下拉：新建任务 / 新建分组；右侧「排序」「分组」下拉切换维度',
   '- 每行：圆形复选框切换完成、标题进详情、优先级色点、标签、截止日、删除',
-  '- 新建任务统一走工具栏「新建」下拉，可在弹窗中选择分组',
+  '- 新建任务统一走工具栏「新建」下拉，可在弹窗中选择分组；弹窗默认选中上次创建时使用的分组（若为偏好记录且分组仍存在，否则回退第一个）',
   '- 自定义分组「⋯」：重命名 / 删除；备注 500ms 防抖 + blur 提交',
   '',
   '## 5. 界面样式适配',
@@ -179,6 +179,11 @@ export function ensureGroupForNewTask(groups, selectedId) {
   return groups.some(g => g.id === selectedId) ? selectedId : groups[0].id;
 }
 
+/** 新建任务弹窗的默认分组 id：上次选择仍有效则复用，否则回退第一个分组。 */
+export function defaultGroupForNewTask(groups, lastGroupId) {
+  return ensureGroupForNewTask(groups, lastGroupId) ?? '';
+}
+
 /** 纯函数：返回属于指定分组的待办 id 列表（删除分组连带删除用） */
 export function todoIdsInGroup(todos, groupId) {
   return todos.filter(t => t.groupId === groupId).map(t => t.id);
@@ -198,6 +203,7 @@ function addTodo(title, groupId = '', priority = 'medium', due = null, start = n
     note: extra.note || '', tags: Array.isArray(extra.tags) ? extra.tags : [],
     groupId: targetGroupId, created: Date.now(), completedAt: null,
   });
+  return targetGroupId;
 }
 
 function toggleTodo(id) {
@@ -380,9 +386,10 @@ function todoFields({ title, start, due, priority, group, tags, note }) {
 /** 新建任务弹窗：与待办详情使用相同的字段结构与顺序 */
 export function askNewTask() {
   const title = input({ placeholder: '输入任务标题…', maxlength: 120 });
-  const groups = alive('todoGroups');
+  const groups = alive('todoGroups').slice().sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0));
+  const defaultGroupId = defaultGroupForNewTask(groups, store.get('todoLastGroupId', ''));
   const group = el('select', { class: 'input select' },
-    ...groups.map(g => el('option', { value: g.id }, g.name)));
+    ...groups.map(g => el('option', { value: g.id, selected: g.id === defaultGroupId }, g.name)));
   group.disabled = groups.length === 0; // 无分组时由 addTodo 自动建"默认"组
   const priority = prioritySelect('medium');
   const start = el('input', { type: 'date', class: 'input' });
@@ -400,7 +407,7 @@ export function askNewTask() {
         title.focus();
         return;
       }
-      addTodo(
+      const usedGroupId = addTodo(
         title.value,
         group.value,
         priority.value,
@@ -408,6 +415,7 @@ export function askNewTask() {
         start.value ? new Date(start.value).getTime() : null,
         { note: note.value, tags: tags.getTags() },
       );
+      if (usedGroupId) store.set('todoLastGroupId', usedGroupId);
       close();
       toast('已创建任务');
     } },

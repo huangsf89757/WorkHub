@@ -40,6 +40,7 @@ const PREF_KEYS = Object.freeze(new Set([
   'theme', 'skin', 'skinMounts', 'skinPoints', 'menuLayout',
   'extEnabled', 'rightCollapsed', 'shortcuts', 'searchRules',
   'leftW', 'rightW', 'bottomH', 'navCollapsed', // 五区拖拽后的尺寸与左栏收起偏好
+  'todoLastGroupId', // 新建任务弹窗上次选择的分组（下次默认选中）
   'links', // 无独立表的通用 KV，归入系统设置命名空间
   'currentUserId', 'currentUserName',
   'deviceId',

@@ -516,6 +516,7 @@ const BASE_PREF_KEYS = new Set([
   'theme', 'skin', 'skinMounts', 'skinPoints', 'menuLayout',
   'extEnabled', 'rightCollapsed', 'shortcuts', 'searchRules',
   'leftW', 'rightW', 'bottomH', 'navCollapsed',
+  'todoLastGroupId', // 新建任务上次选择的分组，随基座偏好一起回灌/镜像
 ]);
 
 /** 声明式登记扩展（新增扩展零改表）；重复调用幂等 */
