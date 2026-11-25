@@ -641,14 +641,20 @@ body[data-page="system"] .top-system { display: flex; }
   background: var(--bg-inset); padding: 1px 6px; border-radius: 8px;
 }
 .todo-group-body { padding-top: 5px; }
-/* 拖动排序：分组标题行可拖；放置指示线；任务拖动态 */
-.todo-group-head-row[draggable="true"] { cursor: grab; }
-.todo-group-head-row[draggable="true"]:active { cursor: grabbing; }
-.todo-group.drop-before { box-shadow: inset 0 2px 0 var(--accent); }
-.todo-group.drop-after { box-shadow: inset 0 -2px 0 var(--accent); }
-.todo-group-body.drop-todo { outline: 1px dashed var(--accent); outline-offset: 2px; border-radius: var(--r-sm); }
-.todo-row[draggable="true"] { cursor: grab; }
-.todo-row.dragging { opacity: .45; }
+/* SortableJS 拖动：左侧手柄 hover 显示，ghost 半透明 */
+.todo-group-drag-handle, .todo-drag-handle {
+  display: flex; align-items: center; justify-content: center;
+  color: var(--text-3); cursor: grab; opacity: 0; transition: opacity .12s;
+  user-select: none; -webkit-user-select: none;
+}
+.todo-group-drag-handle { flex: none; width: 16px; height: 24px; }
+.todo-drag-handle { width: 18px; height: 30px; }
+.todo-group-head-row:hover > .todo-group-drag-handle,
+.todo-row:hover > .todo-drag-handle { opacity: 1; }
+.todo-group-drag-handle:active, .todo-drag-handle:active { cursor: grabbing; }
+.todo-drag-handle.hidden { display: none; }
+.sortable-ghost { opacity: .35; background: var(--accent-dim, var(--bg-inset)) !important; }
+.todo-group-body:empty { min-height: 24px; }
 .todo-row {
   border: 1px solid var(--line); border-radius: var(--r-sm);
   background: var(--bg); margin-bottom: 5px; min-height: 38px;

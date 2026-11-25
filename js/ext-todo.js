@@ -12,18 +12,6 @@ import {
   state, declareDomain, insert, update, remove, alive, byId,
 } from './data.js';
 
-/**
- * 分组重排纯函数：把 dragId 从原位置移到 targetId 之前/之后，返回新的 id 顺序。
- * 不修改入参；供拖动排序使用（默认组不传入，由调用方置顶固定）。
- */
-export function reorderGroupIds(ids, dragId, targetId, placeAfter) {
-  const result = ids.filter(id => id !== dragId);
-  if (!result.includes(targetId)) return [...ids];
-  const at = result.indexOf(targetId) + (placeAfter ? 1 : 0);
-  result.splice(at, 0, dragId);
-  return result;
-}
-
 /* README：应用内「扩展详情 › README」展示的精简版；完整文档见 docs/extensions/todo.md */
 const TODO_README = [
   '# TODO 扩展',
@@ -107,7 +95,7 @@ let view = 'all';            // all | undone | done
 let sortBy = 'default';      // default | due | created | priority
 let groupBy = 'group';       // group | priority | due | none
 const collapsed = new Set();
-let dragState = null;        // 拖拽状态：{ type:'group'|'todo', id }，仅 groupBy==='group' 时启用
+let sortableInstances = [];  // SortableJS 实例缓存，重绘前销毁避免重复绑定
 
 const PRIO = { high: 0, medium: 1, low: 2 };
 const PRIO_LABEL = { high: '高', medium: '中', low: '低' };
@@ -138,7 +126,7 @@ const fullShort = ts => {
 /** 窄屏只保留截止列，避免列溢出 */
 const visibleCols = () => COLS.filter(c => window.innerWidth >= 760 || c.id === 'due');
 const gridStyle = () =>
-  `grid-template-columns: 22px 10px minmax(0,1fr) ${visibleCols().map(() => '88px').join(' ')} 24px`;
+  `grid-template-columns: 18px 22px 10px minmax(0,1fr) ${visibleCols().map(() => '88px').join(' ')} 24px`;
 
 /* ============================================================
    通用浮层菜单（锚在按钮下方，自动夹紧到视口）
@@ -434,7 +422,14 @@ function todoRow(todo) {
       ? el('span', { class: 'todo-tags' }, todo.tags.slice(0, 3).map(tag => el('span', { class: 'todo-tag' }, tag)))
       : null);
 
-  const row = el('div', { class: 'todo-row' + (todo.done ? ' done' : ''), style: gridStyle() },
+  const handle = el('span', {
+    class: 'todo-drag-handle' + (groupBy === 'group' ? '' : ' hidden'),
+    title: '拖动移动到其他分组', 'aria-label': '拖动待办',
+    html: '<svg viewBox="0 0 10 16" width="10" height="16" fill="currentColor"><circle cx="2" cy="3" r="1.2"/><circle cx="8" cy="3" r="1.2"/><circle cx="2" cy="8" r="1.2"/><circle cx="8" cy="8" r="1.2"/><circle cx="2" cy="13" r="1.2"/><circle cx="8" cy="13" r="1.2"/></svg>',
+  });
+
+  return el('div', { class: 'todo-row' + (todo.done ? ' done' : ''), style: gridStyle(), 'data-todo-id': todo.id },
+    handle,
     checkbox,
     el('span', {
       class: `prio-dot ${todo.priority}`,
@@ -450,24 +445,6 @@ function todoRow(todo) {
       class: 'icon-btn todo-del', title: '删除', 'aria-label': `删除待办「${todo.title}」`,
       onclick: () => askDeleteTodo(todo),
     }, el('span', { class: 'icon', html: icons.trash })));
-
-  if (groupBy === 'group') {
-    row.draggable = true;
-    row.title = '拖动可移动到其他分组';
-    row.addEventListener('dragstart', event => {
-      // 复选框/按钮等交互元素上不启动拖动，避免误触
-      if (event.target.closest('button, input')) { event.preventDefault(); return; }
-      dragState = { type: 'todo', id: todo.id };
-      event.dataTransfer.effectAllowed = 'move';
-      event.dataTransfer.setData('text/plain', 'todo:' + todo.id);
-      row.classList.add('dragging');
-    });
-    row.addEventListener('dragend', () => {
-      row.classList.remove('dragging');
-      dragState = null;
-    });
-  }
-  return row;
 }
 
 /** 每组下方的「新建任务」入口（点击展开输入，回车创建到该组） */
@@ -495,30 +472,72 @@ function inlineNew(sec) {
   return wrap;
 }
 
-/** 分组放置：按新顺序重排自定义分组并把 sort 重置为 0..n-1（走 LWW 写路径） */
-function applyGroupDrop(dragId, targetId, placeAfter) {
-  if (!dragId || !targetId || dragId === targetId) return;
-  const groups = alive('todoGroups').slice().sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0));
-  const ids = groups.map(g => g.id);
-  if (!ids.includes(dragId) || !ids.includes(targetId)) return;
-  const next = reorderGroupIds(ids, dragId, targetId, placeAfter);
-  next.forEach((id, i) => {
-    if (groups.find(g => g.id === id)?.sort !== i) update('todoGroups', id, { sort: i });
-  });
+/**
+ * 纯函数：从 DOM 顺序的 group id 列表生成 sort 映射。
+ * 过滤掉置顶的默认组（'__default__'），自定义分组 sort 从 0 连续编号。
+ */
+export function sortOrdersFromDomIds(domIds) {
+  const orders = new Map();
+  domIds.filter(id => id && id !== '__default__').forEach((id, i) => orders.set(id, i));
+  return orders;
+}
+
+/** SortableJS 分组 onEnd：按 DOM 新顺序把自定义分组 sort 重置为 0..n-1（默认组 DOM 固定第一，不参与） */
+function syncGroupOrderFromDOM(container) {
+  const domIds = [...container.querySelectorAll('.todo-group[data-group-id]')].map(n => n.dataset.groupId);
+  const orders = sortOrdersFromDomIds(domIds);
+  let changed = false;
+  for (const [id, sort] of orders) {
+    if (byId('todoGroups', id)?.sort !== sort) { update('todoGroups', id, { sort }); changed = true; }
+  }
+  if (changed) bus.emit('route');
+}
+
+/** SortableJS 任务 onEnd：任务被拖到目标容器 → 更新 groupId（默认组容器 data-group-id=''） */
+function syncTodoGroupFromDOM(evt) {
+  const todoId = evt.item?.dataset?.todoId;
+  const toGroupId = evt.to?.dataset?.groupId;
+  if (!todoId || toGroupId === undefined) return;
+  const todo = byId('todos', todoId);
+  if (!todo || (todo.groupId || '') === toGroupId) return;
+  update('todos', todoId, { groupId: toGroupId });
   bus.emit('route');
 }
 
-/** 任务放置：把待办移到目标分组（groupId='' 表示默认组） */
-function applyTodoDrop(todoId, groupId) {
-  const todo = byId('todos', todoId);
-  if (!todo || (todo.groupId || '') === groupId) return;
-  update('todos', todoId, { groupId });
-  bus.emit('route');
+/** 初始化 SortableJS：分组排序 + 任务跨组拖动；重绘前先销毁旧实例 */
+function initSortables(body) {
+  sortableInstances.forEach(s => s.destroy());
+  sortableInstances = [];
+  if (groupBy !== 'group' || !window.Sortable) return;
+
+  // 分组排序：handle 限定在自定义分组的标题行（默认组无 data-group-id，不可拖）
+  const groupSort = window.Sortable.create(body, {
+    handle: '.todo-group-head-row[data-group-handle]',
+    animation: 150,
+    ghostClass: 'sortable-ghost',
+    filter: '.todo-inline-new',
+    onEnd: () => syncGroupOrderFromDOM(body),
+  });
+  sortableInstances.push(groupSort);
+
+  // 任务跨组：每个分组 body 是一个列表，同名 group 允许互相拖
+  body.querySelectorAll('.todo-group-body').forEach(list => {
+    const todoSort = window.Sortable.create(list, {
+      group: 'workhub-todos',
+      handle: '.todo-drag-handle',
+      animation: 150,
+      ghostClass: 'sortable-ghost',
+      draggable: '.todo-row',
+      onEnd: syncTodoGroupFromDOM,
+    });
+    sortableInstances.push(todoSort);
+  });
 }
 
 function sectionNode(sec) {
   const isCollapsed = collapsed.has(sec.id);
-  const draggable = groupBy === 'group';
+  const isReal = !!sec.groupId; // 真实自定义分组才参与拖动排序；默认/虚拟分组不可拖
+
   const head = el('button', {
     class: 'todo-group-head',
     onclick: () => {
@@ -531,21 +550,21 @@ function sectionNode(sec) {
     el('span', {}, sec.name),
     el('span', { class: 'todo-group-count' }, String(sec.todos.length)));
 
-  // 自定义分组的标题行可拖动排序（默认/虚拟分组不可拖）
-  const headRow = el('div', { class: 'todo-group-head-row' }, head);
-  if (draggable && sec.groupId) {
-    headRow.draggable = true;
-    headRow.title = '拖动调整分组顺序';
-    headRow.addEventListener('dragstart', event => {
-      dragState = { type: 'group', id: sec.groupId };
-      event.dataTransfer.effectAllowed = 'move';
-      event.dataTransfer.setData('text/plain', 'group:' + sec.groupId);
-    });
-    headRow.addEventListener('dragend', () => { dragState = null; });
+  // 分组标题行：自定义分组带 data-group-handle 供 SortableJS 作为拖动手柄（左侧图标）
+  const headRow = el('div', {
+    class: 'todo-group-head-row',
+    ...(isReal && groupBy === 'group' ? { 'data-group-handle': '1' } : {}),
+  });
+  if (isReal && groupBy === 'group') {
+    headRow.append(el('span', {
+      class: 'todo-group-drag-handle', title: '拖动调整分组顺序', 'aria-label': '拖动分组',
+      html: '<svg viewBox="0 0 10 16" width="10" height="16" fill="currentColor"><circle cx="2" cy="3" r="1.2"/><circle cx="8" cy="3" r="1.2"/><circle cx="2" cy="8" r="1.2"/><circle cx="8" cy="8" r="1.2"/><circle cx="2" cy="13" r="1.2"/><circle cx="8" cy="13" r="1.2"/></svg>',
+    }));
   }
+  headRow.append(head);
 
   // 仅真实自定义分组有管理菜单；默认/优先级/截止日等虚拟分组没有 groupId
-  const more = sec.groupId
+  const more = isReal
     ? el('button', {
         class: 'todo-group-more', title: '分组操作', 'aria-label': `分组「${sec.name}」操作菜单`,
         onclick: event => openMenu(event.currentTarget, [
@@ -560,55 +579,16 @@ function sectionNode(sec) {
     : null;
   if (more) headRow.append(more);
 
-  const body = el('div', { class: 'todo-group-body' });
+  const body = el('div', { class: 'todo-group-body', 'data-group-id': sec.groupId || '' });
   if (!isCollapsed) {
     sec.todos.forEach(todo => body.append(todoRow(todo)));
     body.append(inlineNew(sec));
   }
 
-  const groupNode = el('div', { class: 'todo-group' }, headRow, body);
-
-  if (draggable) {
-    // 分组作为拖动排序的放置目标：上/下半区决定插到目标之前/之后
-    groupNode.addEventListener('dragover', event => {
-      if (dragState?.type !== 'group' || dragState.id === sec.groupId) return;
-      event.preventDefault();
-      const rect = groupNode.getBoundingClientRect();
-      const after = event.clientY > rect.top + rect.height / 2;
-      groupNode.classList.toggle('drop-before', !after);
-      groupNode.classList.toggle('drop-after', after);
-    });
-    groupNode.addEventListener('dragleave', () => {
-      groupNode.classList.remove('drop-before', 'drop-after');
-    });
-    groupNode.addEventListener('drop', event => {
-      if (dragState?.type !== 'group' || !sec.groupId) return;
-      event.preventDefault();
-      event.stopPropagation();
-      const rect = groupNode.getBoundingClientRect();
-      const after = event.clientY > rect.top + rect.height / 2;
-      groupNode.classList.remove('drop-before', 'drop-after');
-      applyGroupDrop(dragState.id, sec.groupId, after);
-      dragState = null;
-    });
-
-    // 分组 body 作为任务跨分组拖动的放置目标（默认组 groupId 为空串也是合法目标）
-    body.addEventListener('dragover', event => {
-      if (dragState?.type !== 'todo') return;
-      event.preventDefault();
-      body.classList.add('drop-todo');
-    });
-    body.addEventListener('dragleave', () => body.classList.remove('drop-todo'));
-    body.addEventListener('drop', event => {
-      if (dragState?.type !== 'todo') return;
-      event.preventDefault();
-      event.stopPropagation();
-      body.classList.remove('drop-todo');
-      applyTodoDrop(dragState.id, sec.groupId || '');
-      dragState = null;
-    });
-  }
-
+  const groupNode = el('div', {
+    class: 'todo-group',
+    'data-group-id': sec.groupId || '__default__',
+  }, headRow, body);
   return groupNode;
 }
 
@@ -675,6 +655,7 @@ registry.add({
     const list = sections(todos);
     if (list.length) list.forEach(sec => body.append(sectionNode(sec)));
     else body.append(el('div', { class: 'empty big' }, '没有符合条件的待办'));
+    initSortables(body); // SortableJS：分组排序 + 任务跨组拖动（仅自定义分组视图）
 
     return el('div', { class: 'page todo-page' },
       pageHeader({

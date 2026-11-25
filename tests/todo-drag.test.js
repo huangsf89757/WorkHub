@@ -3,33 +3,24 @@ import assert from 'node:assert/strict';
 import { installLocalStorage, installFakeBrowser } from './helpers.js';
 installLocalStorage(); installFakeBrowser();
 
-const { reorderGroupIds } = await import('../js/ext-todo.js');
+const { sortOrdersFromDomIds } = await import('../js/ext-todo.js');
 
-test('reorderGroupIds：把分组插到目标之后，返回新顺序', () => {
-  const ids = ['a', 'b', 'c', 'd'];
-  assert.deepEqual(reorderGroupIds(ids, 'a', 'c', true), ['b', 'c', 'a', 'd']);
+test('sortOrdersFromDomIds：自定义分组按 DOM 顺序从 0 连续编号', () => {
+  const map = sortOrdersFromDomIds(['g1', 'g2', 'g3']);
+  assert.deepEqual([...map], [['g1', 0], ['g2', 1], ['g3', 2]]);
 });
 
-test('reorderGroupIds：把分组插到目标之前', () => {
-  const ids = ['a', 'b', 'c', 'd'];
-  assert.deepEqual(reorderGroupIds(ids, 'd', 'b', false), ['a', 'd', 'b', 'c']);
+test('sortOrdersFromDomIds：默认组 __default__ 置顶但不占 sort 位', () => {
+  const map = sortOrdersFromDomIds(['__default__', 'g1', 'g2']);
+  assert.deepEqual([...map], [['g1', 0], ['g2', 1]]);
+  assert.equal(map.has('__default__'), false, '默认组不产生 sort 更新');
 });
 
-test('reorderGroupIds：拖到末尾之后', () => {
-  assert.deepEqual(reorderGroupIds(['a', 'b', 'c'], 'a', 'c', true), ['b', 'c', 'a']);
+test('sortOrdersFromDomIds：过滤空 id 与默认组', () => {
+  const map = sortOrdersFromDomIds(['__default__', '', 'g1', 'g2']);
+  assert.deepEqual([...map], [['g1', 0], ['g2', 1]]);
 });
 
-test('reorderGroupIds：拖到开头之前', () => {
-  assert.deepEqual(reorderGroupIds(['a', 'b', 'c'], 'c', 'a', false), ['c', 'a', 'b']);
-});
-
-test('reorderGroupIds：source===target 时不变', () => {
-  assert.deepEqual(reorderGroupIds(['a', 'b', 'c'], 'b', 'b', true), ['a', 'b', 'c']);
-});
-
-test('reorderGroupIds：不修改原数组', () => {
-  const ids = ['a', 'b', 'c'];
-  const result = reorderGroupIds(ids, 'a', 'c', true);
-  assert.deepEqual(ids, ['a', 'b', 'c'], '原数组保持不变');
-  assert.notEqual(result, ids);
+test('sortOrdersFromDomIds：仅默认组时返回空映射', () => {
+  assert.deepEqual([...sortOrdersFromDomIds(['__default__'])], []);
 });

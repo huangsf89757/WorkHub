@@ -12,24 +12,28 @@
 - 右栏统计"分组分布"行
 - 删除分组确认提示 / toast 文案
 
-## 2. 技术方案：HTML5 原生 Drag & Drop（桌面优先）
+## 2. 技术方案：SortableJS（vendor 本地单文件）
 
-选型理由：零依赖、实现快；移动端壳（Sprint 7）尚未开始，届时再升级 Pointer Events/SortableJS。
+原 HTML5 原生 DnD 实现存在多个 bug（拖动手感/落点判定/误触），已弃用。改用 SortableJS 1.15.6（MIT，44KB，放 `vendor/sortablejs/Sortable.min.js`，UMD 全局引入）。理由：成熟稳定、原生支持拖动手柄（handle）与跨组拖动（group），bug 少；守住零构建（本地文件、不联网）。代价：引入一个第三方库文件。
+
+### 拖动手柄（用户要求）
+
+任务行与自定义分组标题行最左侧新增六点手柄图标，**hover 才显示**，按住手柄才能拖——避免误触复选框/标题/删除按钮。SortableJS 通过 `handle` 选项限定只有手柄可发起拖动。
 
 ## 3. 分组拖动排序
 
-- 可拖对象：仅真实自定义分组（`sec.groupId` 存在）。"默认"（虚拟分组）**置顶固定、不参与拖动**。
-- 拖动手柄：分组标题行 `.todo-group-head-row`，`draggable=true`。
-- 放置判定：`dragover` 在目标分组上/下方显示插入指示；`drop` 后对自定义分组按新顺序重排，把 `sort` 重置为 0..n-1，逐个 `update('todoGroups', id, {sort})`（走 LWW 写路径，自动同步）。
-- `groupBy !== 'group'` 时不启用拖动（虚拟分区无拖动语义）。
-- 拖动中不重绘，`drop` 后才 `bus.emit('route')`。
+- 可拖对象：仅真实自定义分组（`data-group-id` 存在且非 `__default__`）。"默认"（虚拟分组）**置顶固定、不参与拖动**。
+- 拖动手柄：自定义分组标题行最左侧六点图标（`.todo-group-drag-handle`），hover 显示；SortableJS `handle` 选项限定。
+- 放置：SortableJS `onEnd` 读 DOM 新顺序，`sortOrdersFromDomIds()` 过滤默认组后从 0 连续编号，逐个 `update('todoGroups', id, {sort})`（走 LWW 写路径，自动同步）。
+- `groupBy !== 'group'` 时不初始化 SortableJS（虚拟分区无拖动语义）。
+- 重绘前 `destroy()` 旧实例，避免重复绑定。
 
 ## 4. 任务跨分组拖动
 
-- 可拖对象：任务行 `.todo-row`，`draggable=true`。
-- 放置目标：任意分组的 body（含"默认"分组）。
-- `drop` 后 `update('todos', id, {groupId: 目标组 id 或 ''})`，走 LWW 同步。
-- 避免误触：任务行内的复选框/删除按钮等交互元素上不启动拖动（dragstart 判断 target）。
+- 可拖对象：任务行 `.todo-row` 左侧手柄（`.todo-drag-handle`），hover 显示。
+- 放置目标：任意分组的 body（含"默认"分组，其 `data-group-id=''`）。
+- SortableJS `group: 'workhub-todos'` 让各分组 body 互通；`onEnd` 读 `evt.to.dataset.groupId`，`update('todos', id, {groupId})`，走 LWW 同步。
+- `handle` 限定只有手柄能发起拖动，彻底避免误触复选框/标题/删除按钮。
 - 同样仅 `groupBy === 'group'` 时启用。
 
 ## 5. 边界与取舍
