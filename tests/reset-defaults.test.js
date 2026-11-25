@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { installLocalStorage, installFakeBrowser } from './helpers.js';
 installLocalStorage(); installFakeBrowser();
 
-const { extEnabled, setExtEnabled, registry, store, getMenuLayout, getConfigSnapshot, applyConfigSnapshot,
+const { extEnabled, setExtEnabled, registry, store, resolveSlotMount, getConfigSnapshot, applyConfigSnapshot,
   setPlannedFeatures, extStageOf, isExtInstalled, installExt, uninstallExt, extNeedsUpdate, updateExt } = await import('../js/core.js');
 const { storageKey } = await import('../js/base.js');
 
@@ -51,34 +51,25 @@ test('一次性重置迁移：清除存量业务数据与扩展启用态，且�
   assert.ok(localStorage.getItem('wh_ext_todo_items'), '新数据保留');
 });
 
-test('全新工作台不预置任何分组文件夹', () => {
-  localStorage.removeItem(storageKey('menuLayout'));
-  assert.deepEqual(getMenuLayout().groups, []);
+test('全新工作台不预置任何槽位挂载', () => {
+  store.set('themeStyleMounts', {});
+  assert.deepEqual(getConfigSnapshot('classic').themeStyleMounts, {});
 });
 
-test('存量 v1 预置分组被过滤，用户自建分组保留', () => {
-  store.set('menuLayout', {
-    groups: [
-      { id: 'g-work', name: '工作', zone: 'left' },
-      { id: 'g-knowledge', name: '知识', zone: 'left' },
-      { id: 'g-tools', name: '工具', zone: 'left' },
-      { id: 'g-custom', name: '我的分组', zone: 'left' },
-    ],
-    placement: {},
-  });
-  assert.deepEqual(getMenuLayout().groups.map(g => g.id), ['g-custom']);
-  localStorage.removeItem(storageKey('menuLayout'));
+test('空配置下 classic 的 left:top 回落到扩展中心', async () => {
+  await import('../js/theme-style-classic.js');
+  store.set('themeStyleMounts', {});
+  assert.equal(resolveSlotMount('left', 'top'), 'ext-center');
 });
 
 test('配置快照：草稿改动不影响 store，应用后才写回', () => {
-  localStorage.removeItem(storageKey('menuLayout'));
+  store.set('themeStyleMounts', {});
   const snap = getConfigSnapshot('classic');
-  assert.deepEqual(snap.menuLayout.groups, []);
-  snap.menuLayout.groups.push({ id: 'g-x', name: '新分组', zone: 'left' });
-  assert.deepEqual(getMenuLayout().groups, [], '草稿改动未写回前 store 不变');
+  snap.themeStyleMounts['left:top'] = 'todo';
+  assert.deepEqual(store.get('themeStyleMounts', {}), {}, '草稿改动未写回前 store 不变');
   applyConfigSnapshot('classic', snap);
-  assert.deepEqual(getMenuLayout().groups.map(g => g.id), ['g-x'], '应用后写回 store');
-  localStorage.removeItem(storageKey('menuLayout'));
+  assert.equal(store.get('themeStyleMounts', {}).classic['left:top'], 'todo', '应用后写回 store');
+  store.set('themeStyleMounts', {});
 });
 
 test('扩展阶段：registry 视为已上架，清单项按声明，未知回落计划中', () => {

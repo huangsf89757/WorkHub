@@ -31,25 +31,25 @@
 
 ```
 ┌──────────────────────────────────────────────┐
-│  top     主菜单 · 一级入口（横向扩展快捷入口）      │
+│  top     左/中/右挂载区（brand 与用户入口固定）     │
 ├──────────┬───────────────────────┬────────────┤
 │          │                       │            │
 │  left    │      center           │   right    │
-│ 主菜单    │   主内容区             │  扩展入口    │
-│ 一级入口  │   home / detail       │  entry      │
+│ 上/中/下  │   主内容区             │  上/中/下   │
+│ 挂载区    │   home / detail       │  挂载区     │
 │          │   统计卡片             │            │
 ├──────────┴───────────────────────┴────────────┤
-│  bottom  扩展入口 + 系统状态                      │
+│  bottom  左/中/右挂载区                          │
 └──────────────────────────────────────────────┘
 ```
 
 | 区 | 角色 | 用途 | 数据来源 |
 |---|---|---|---|
-| `top` | nav | 主菜单一级入口（横向） | placement.zone=top 的扩展 |
-| `left` | nav | 主菜单一级入口（纵向 + 分组） | placement.zone=left 的扩展 |
+| `top` | nav | 左/中/右三段挂载区 | `themeStyleMounts[styleId]['top:left|mid|right']` |
+| `left` | nav | 上/中/下三段挂载区 | `themeStyleMounts[styleId]['left:top|mid|bottom']` |
 | `center` | content | 唯一的扩展详情承载区 | 当前扩展 `home(ctx)` / `detail(id,ctx)` + 扩展自带统计 |
-| `right` | entry | 扩展入口（可折叠） | `entryExts('right')`：编排/挂载到 right 的已启用扩展 |
-| `bottom` | entry | 扩展入口 + 系统状态 | `entryExts('bottom')` + `setDefaultStatus()` |
+| `right` | entry | 上/中/下三段挂载区（可折叠） | `themeStyleMounts[styleId]['right:top|mid|bottom']` |
+| `bottom` | entry | 左/中/右三段挂载区 | `themeStyleMounts[styleId]['bottom:left|mid|right']` |
 
 **设计意图**：center 独占扩展详情；四边侧栏只挂扩展入口（launcher），不渲染详情内容。窄屏（<900px）自动隐藏 right，<760px 时 left 变抽屉。
 
@@ -66,8 +66,8 @@
 | `id / name / icon / desc` | 元数据，用于设置页卡片展示 |
 | `layout` | `'panels'`（默认五区）或 `'stage'`（主题风格完全接管 center 舞台） |
 | `renderStage(ctx)` | stage 主题风格提供，返回主舞台 DOM 节点 |
-| `mountPoints` | 挂载点列表 `[{id,name,desc,role?,icon?,defaultExt?}]`；panels 为五区（含 `left-bottom` 共 6 项），stage 为场景实物；未声明时 panels 回落五区，`resolveMount()` 按「用户配置 → `defaultExt`」解析 |
-| `configureMounts()` | 可选，主题风格的挂载配置入口；扩展中心点击扩展的挂载标签时调用（未提供则走经典五区 picker） |
+| `mountPoints` | 挂载点列表 `[{id,name,desc,role?,icon?,defaultExt?,slots?}]`；panels 为 `left`/`top`/`right`/`bottom` 四区（`center` 是内容区），各带三段 `slots`；stage 为场景实物；`resolveMount()` 按「用户配置 → `defaultExt`」解析，`resolveSlotMount()` 按「用户配置 → `slotDefaults`」解析 |
+| `configureMounts()` | 可选，主题风格的挂载配置入口；未提供时走主题风格详情页的挂载点配置 |
 | `settingsPanel()` | 可选，主题风格专属设置面板，嵌入设置页 |
 
 **已实现主题风格**：
@@ -78,8 +78,8 @@
 - 挂载配置 `themeStyleMounts[themeStyleId][pointId] = extId`，存系统偏好（localStorage），数据驱动、可视化配置
 - `resolveMount()` 解析：优先用户配置，回落主题风格 `defaultExt`
 - 点击实物 → `router.go(extId)`：已安装扩展/系统页真实打开；规划中扩展显示友好占位；stage 主题风格下所有子视图带统一"返回舞台"条（`router.back()`）
-- 配置入口：设置页 → 主题风格 → 当前主题风格专属设置面板；扩展中心点击扩展的挂载标签（stage 走 `configureMounts()`，panels 走 `placementPicker()`）
-- **扩展中心随主题风格联动**：`getThemeStyleMountPoints()` 提供当前主题风格挂载点，`mountLabelOfExt()` 解析每个扩展位于哪个挂载点——经典分栏显示「左侧 · 主菜单」，3D 工作室显示「电脑 · 3D 工作室」；底部挂载点卡片列表也来自当前主题风格声明，不再写死五区
+- 配置入口：设置页 → 主题风格 → 挂载点配置（panels 四区各三段槽位，stage 走 `configureMounts()`）
+- **扩展中心随主题风格联动**：`getThemeStyleMountPoints()` 提供当前主题风格挂载点，`mountLabelOfExt()` 解析每个扩展位于哪个挂载点——经典分栏显示「左侧栏 · 上部」这类槽位文案，3D 工作室显示「电脑 · 3D 工作室」；底部挂载点卡片列表也来自当前主题风格声明，不再写死五区
 
 **隔离保证**：主题风格只影响 center 舞台与五区显隐（`body[data-theme-style-layout="stage"]` CSS 隐藏 left/right），不碰数据层、同步、路由语义。切换主题风格不改任何业务数据。
 

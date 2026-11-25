@@ -101,7 +101,7 @@ IndexedDB（workhub_db/db）   —— 字节 blob 落盘，页重载不丢
 | 偏好/身份 | `wh_sys_settings_<key>` |
 | 未登记未来域 | `wh_<logical>`（兜底） |
 
-偏好键（`PREF_KEYS`）：`themeColor` `themeStyle` `themeStyleMounts` `themeStylePoints` `menuLayout` `extEnabled` `mountEnabled` `rightCollapsed` `shortcuts` `searchRules` `leftW` `rightW` `bottomH` `navCollapsed` `links` `currentUserId` `currentUserName` `deviceId`。
+偏好键（`PREF_KEYS`）：`themeColor` `themeStyle` `themeStyleMounts` `themeStylePoints` `extEnabled` `mountEnabled` `rightCollapsed` `shortcuts` `searchRules` `leftW` `rightW` `bottomH` `navCollapsed` `links` `currentUserId` `currentUserName` `deviceId`。
 
 ---
 

@@ -58,14 +58,23 @@ const TABLE_RENAMES = Object.freeze({
    IndexedDB 存档（整个 SQLite 数据库导出为字节 blob）
    ============================================================ */
 const idbOpen = () => new Promise((resolve, reject) => {
-  const request = indexedDB.open('workhub_db', 2);
+  let request;
+  try {
+    request = indexedDB.open('workhub_db', 2);
+  } catch (e) { reject(e); return; }
+  // 多标签页持有旧版连接时 open 会卡在 blocked；给一次明确失败，让上层降级为空库而非白屏。
+  const timer = setTimeout(() => reject(new Error('IndexedDB 打开超时（可能被其它标签页阻塞）')), 8000);
   request.onupgradeneeded = () => {
     if (!request.result.objectStoreNames.contains('db')) {
       request.result.createObjectStore('db');
     }
   };
-  request.onsuccess = () => resolve(request.result);
-  request.onerror = () => reject(request.error);
+  request.onblocked = () => {
+    clearTimeout(timer);
+    reject(new Error('IndexedDB 被其它标签页阻塞，请关闭重复标签后刷新'));
+  };
+  request.onsuccess = () => { clearTimeout(timer); resolve(request.result); };
+  request.onerror = () => { clearTimeout(timer); reject(request.error); };
 });
 
 const saveIdb = async bytes => {
@@ -522,7 +531,7 @@ function hydratePrefs(state) {
 }
 
 const BASE_PREF_KEYS = new Set([
-  'themeColor', 'themeStyle', 'themeStyleMounts', 'themeStylePoints', 'menuLayout',
+  'themeColor', 'themeStyle', 'themeStyleMounts', 'themeStylePoints',
   'extEnabled', 'mountEnabled', 'extInstallState', 'rightCollapsed', 'shortcuts', 'searchRules',
   'leftW', 'rightW', 'bottomH', 'navCollapsed',
   'todoLastGroupId', // 新建任务上次选择的分组，随基座偏好一起回灌/镜像

@@ -2,8 +2,8 @@
  *
  * 入口：设置 › 主题风格 › 主题风格卡片「⋯」› 查看详情 → router.open('theme-style-detail', themeStyleId)
  * 三 Tab：介绍 / 预览 / 挂载点配置（单一树形结构）
- * 数据全部走 core 契约；增删走 addGroup/deleteGroup/setPlacement（panels）
- *   与 addCustomThemeStylePoint/deleteCustomThemeStylePoint/setThemeStyleMount（stage）。
+ * 数据全部走 core 契约；增删走 setThemeStyleMount（panels 槽位）
+ *   与 addCustomThemeStylePoint/deleteCustomThemeStylePoint（stage）。
  */
 import {
   el, icons, router, bus, registerSystemPage, toast, openModal, field, input,
@@ -45,7 +45,6 @@ function applyDraft() {
   // 写回内部会 emit route 立即重绘，基线须先更新，否则按钮会残留高亮
   draftBaseline = clone(draft);
   applyConfigSnapshot(draft.themeStyleId, {
-    menuLayout: draft.menuLayout,
     themeStyleMounts: draft.themeStyleMounts,
     themeStylePoints: draft.themeStylePoints,
     extEnabled: draft.extEnabled,
@@ -70,7 +69,6 @@ registerUnappliedGuard({
   discard: () => { discardDraft(); return true; },
 });
 
-const dMenu = () => draft.menuLayout;
 /** 挂载实例键：槽位绑定用 zone，stage 实物用 point.id。 */
 function dMountKey(item) {
   return item.binding === 'slot' ? item.zone : item.point?.id;
@@ -94,36 +92,9 @@ function dPoints(themeStyle) {
       }));
   return base.concat(draft.themeStylePoints);
 }
-function dPlacementOf(ext) {
-  if ((ext.group ?? 'main') !== 'main') return { zone: 'left', slot: ext.group };
-  const place = draft.menuLayout.placement[ext.id];
-  if (!place) return { zone: 'left', slot: 'main' };
-  if (place.slot?.startsWith('group:')) {
-    const group = draft.menuLayout.groups.find(g => 'group:' + g.id === place.slot);
-    if (!group || group.zone !== place.zone) {
-      return place.zone === 'left' ? { zone: 'left', slot: 'main' } : { zone: place.zone };
-    }
-  }
-  return place;
-}
 function dSetMount(pointId, extId) {
   if (extId) draft.themeStyleMounts[pointId] = extId;
   else delete draft.themeStyleMounts[pointId];
-}
-function dAddGroup(name, zone) {
-  const group = { id: 'g' + Date.now().toString(36), name, zone, collapsed: false };
-  draft.menuLayout.groups.push(group);
-  return group;
-}
-function dDeleteGroup(gid) {
-  draft.menuLayout.groups = draft.menuLayout.groups.filter(g => g.id !== gid);
-  for (const [extId, place] of Object.entries(draft.menuLayout.placement)) {
-    if (place?.slot === 'group:' + gid) delete draft.menuLayout.placement[extId];
-  }
-}
-function dSetPlacement(extId, place) {
-  if (place) draft.menuLayout.placement[extId] = place;
-  else delete draft.menuLayout.placement[extId];
 }
 function dSetEnabled(themeStyle, item, on) {
   const key = dMountKey(item);
@@ -153,9 +124,9 @@ function introView(themeStyle) {
         kv('主题风格 ID', themeStyle.id, true)),
       el('div', { class: 'sd-contract' },
         el('span', {}, '数据源　', el('b', {}, 'getConfigSnapshot()'), ' → 草稿'),
-        el('span', {}, '解析　　', el('b', {}, '草稿挂载 / 分组快照')),
+        el('span', {}, '解析　　', el('b', {}, '草稿挂载快照')),
         el('span', {}, '应用　　', el('b', {}, 'applyConfigSnapshot()')),
-        el('span', {}, '目录　　', el('b', {}, 'addGroup()'), ' / ', el('b', {}, 'deleteGroup()'), ' / ', el('b', {}, 'addCustomThemeStylePoint()')))));
+        el('span', {}, '目录　　', el('b', {}, 'setThemeStyleMount()'), ' / ', el('b', {}, 'addCustomThemeStylePoint()')))));
 }
 
 /* ---------- 预览 ---------- */
@@ -203,11 +174,11 @@ function previewView(themeStyle) {
 }
 
 /* ---------- 挂载点配置（分区 → 三段槽位 → 文件夹 / 扩展） ---------- */
-/** 展开三态：全部收起 → 只展开已挂载 → 全部展开；custom 仅作手动调整后的提示态。 */
+/** 展开三态：全部收起 → 展开扩展（展开挂载区域、显现槽位） → 全部展开；custom 仅作手动调整后的提示态。 */
 const EXPAND_ORDER = ['collapsed', 'mounted', 'all'];
 const EXPAND_META = {
   collapsed: { label: '全部收起', icon: icons.expandNone },
-  mounted: { label: '已挂载', icon: icons.expandPartial },
+  mounted: { label: '扩展展开', icon: icons.expandPartial },
   all: { label: '全部展开', icon: icons.expandAll },
   custom: { label: '自定义', icon: icons.expandPartial },
 };
@@ -268,49 +239,33 @@ function treeView(themeStyle) {
   return panel;
 }
 
-function mountedAtZone(zone, slot) {
-  return registry.list.filter(e => {
-    const p = dPlacementOf(e);
-    if (p.zone !== zone) return false;
-    return slot === 'main' ? (p.slot === 'main' || !p.slot) : p.slot === slot;
-  }).map(e => e.id);
-}
 function slotChildren(themeStyle, point, slot) {
   const zone = slotPointId(point.id, slot.id);
-  const groups = dMenu().groups.filter(g =>
-    g.zone === zone || (slot.id === 'mid' && g.zone === point.id && !g.zone.includes(':')));
-  const out = groups.map(g => {
-    const groupZone = g.zone === zone ? zone : g.zone;
-    return {
-      kind: 'group', id: g.id, name: g.name, zone: groupZone,
-      mounts: mountedAtZone(groupZone, 'group:' + g.id),
-    };
-  });
   const extId = dResolve(themeStyle, { id: zone });
-  if (extId) out.push({ kind: 'ext', id: extId, name: extName(extId), extId, binding: 'slot', zone });
-  return out;
+  return extId ? [{ kind: 'ext', id: extId, name: extName(extId), extId, binding: 'slot', zone }] : [];
 }
 function stageChildren(themeStyle, point) {
   const id = dResolve(themeStyle, point);
   return id ? [{ kind: 'ext', id, name: extName(id), extId: id, binding: 'point', point }] : [];
 }
 
-/** 槽位是否挂了扩展（直接绑定或经文件夹绑定）。 */
+/** 槽位是否挂了扩展。 */
 function slotHasExt(themeStyle, point, slot) {
-  return slotChildren(themeStyle, point, slot).some(item => item.kind === 'ext' || item.mounts?.length > 0);
+  return slotChildren(themeStyle, point, slot).length > 0;
 }
-/** 槽位下实际挂载的扩展数（含文件夹内的），供计数徽章使用。 */
+/** 槽位下挂载的扩展数，供计数徽章使用。 */
 function slotExtCount(themeStyle, point, slot) {
-  return slotChildren(themeStyle, point, slot).reduce(
-    (n, item) => n + (item.kind === 'ext' ? 1 : item.mounts.length), 0);
+  return slotChildren(themeStyle, point, slot).length;
 }
-/** 默认折叠策略：只展开有扩展的分支，空分区与空槽位收起。 */
+/** 「扩展展开」预设：展开有扩展的路径，其余收起；无任何扩展时与「全部收起」等价，从而被跳过。 */
 function initCollapsed(themeStyle) {
   const next = new Set();
+  let anyExt = false;
   for (const point of dPoints(themeStyle)) {
     const pointKey = themeStyle.id + ':' + point.id;
     if (themeStyle.layout === 'stage' || !point.slots?.length) {
       if (!stageChildren(themeStyle, point).length) next.add(pointKey);
+      else anyExt = true;
       continue;
     }
     let hasExt = false;
@@ -318,9 +273,11 @@ function initCollapsed(themeStyle) {
       if (slotHasExt(themeStyle, point, slot)) hasExt = true;
       else next.add(themeStyle.id + ':' + slotPointId(point.id, slot.id));
     }
-    if (!hasExt) next.add(pointKey);
+    if (hasExt) anyExt = true;
+    else next.add(pointKey);
   }
-  return next;
+  // 没有任何扩展时，返回与「全部收起」相同的集合，令中间态被 nextExpandState 跳过
+  return anyExt ? next : new Set(allTreeKeys(themeStyle));
 }
 /** 树中所有可折叠节点的 key，供「全部收起」使用。 */
 function allTreeKeys(themeStyle) {
@@ -352,12 +309,6 @@ function revealExtPaths(themeStyle, extId) {
       if (dResolve(themeStyle, { id: zone }) === extId) {
         collapsed.delete(themeStyle.id + ':' + zone);
         collapsed.delete(pointKey);
-      }
-      for (const g of dMenu().groups.filter(x => x.zone === zone)) {
-        if (mountedAtZone(zone, 'group:' + g.id).includes(extId)) {
-          collapsed.delete(themeStyle.id + ':' + zone);
-          collapsed.delete(pointKey);
-        }
       }
     }
   }
@@ -399,7 +350,7 @@ function rowActions(actions) {
   }, el('span', { class: 'icon', html: a.icon })));
 }
 
-/** 分区行：加号新增文件夹/扩展，垃圾桶清空该分区绑定。 */
+/** 分区行：仅是挂载区域（非挂载点），不可新增、不可删除。 */
 function zoneRow(themeStyle, point) {
   const key = themeStyle.id + ':' + point.id;
   const { row, open } = treeRow({
@@ -407,10 +358,6 @@ function zoneRow(themeStyle, point) {
     count: slotsOfZone(point.id).reduce((n, slot) => n + slotExtCount(themeStyle, point, slot), 0),
     root: true, hasKids: true, key,
   });
-  rowActions([
-    { icon: icons.plus, title: '新增子项', onClick: btn => askAddMenu(themeStyle, btn, { point }) },
-    { icon: icons.trash, danger: true, title: '清空挂载点', onClick: () => askClearZone(themeStyle, point) },
-  ]).forEach(b => row.append(b));
   const frag = document.createDocumentFragment();
   frag.append(row);
   if (open) slotsOfZone(point.id).forEach(slot => frag.append(slotRow(themeStyle, point, slot)));
@@ -429,7 +376,6 @@ function slotRow(themeStyle, point, slot) {
   });
   rowActions([
     { icon: icons.plus, title: '新增子项', onClick: btn => askAddMenu(themeStyle, btn, { point, slot, zone }) },
-    { icon: icons.trash, danger: true, title: '清空该段', onClick: () => askClearSlot(themeStyle, point, slot) },
   ]).forEach(b => row.append(b));
   const frag = document.createDocumentFragment();
   frag.append(row);
@@ -447,7 +393,6 @@ function stagePointRow(themeStyle, point) {
   });
   rowActions([
     { icon: icons.plus, title: '新增子项', onClick: btn => askAddMenu(themeStyle, btn, { point, zone: point.id }) },
-    { icon: icons.trash, danger: true, title: '删除挂载点', onClick: () => askClearZone(themeStyle, point) },
   ]).forEach(b => row.append(b));
   const frag = document.createDocumentFragment();
   frag.append(row);
@@ -455,21 +400,17 @@ function stagePointRow(themeStyle, point) {
   return frag;
 }
 
-/** 文件夹或扩展行：文件夹加号+删除，扩展删除+眼睛开关。 */
+/** 扩展行：删除挂载 + 启停开关。 */
 function itemRow(themeStyle, point, slot, item, depth) {
-  const isExt = item.kind === 'ext';
-  const zone = item.zone || (slot ? slotPointId(point.id, slot.id) : point.id);
-  const extRec = isExt
-    ? (registry.get(item.extId) || getPlannedFeatures().find(f => f.id === item.extId))
-    : null;
+  const extRec = registry.get(item.extId) || getPlannedFeatures().find(f => f.id === item.extId);
   const { row } = treeRow({
     depth,
-    icon: isExt ? (extRec?.icon || icons.puzzle) : icons.folder,
-    name: isExt ? (extRec?.name || item.name) : item.name,
+    icon: extRec?.icon || icons.puzzle,
+    name: extRec?.name || item.name,
   });
-  if (isExt && item.extId === focusExtId) row.classList.add('sd-trow-focus');
-  const enabled = isExt ? dEnabled(themeStyle, item) : false;
-  const actions = isExt ? [
+  if (item.extId === focusExtId) row.classList.add('sd-trow-focus');
+  const enabled = dEnabled(themeStyle, item);
+  rowActions([
     {
       icon: enabled ? icons.eye : icons.eyeOff,
       title: enabled ? '停用扩展' : '启用扩展',
@@ -481,25 +422,13 @@ function itemRow(themeStyle, point, slot, item, depth) {
       },
     },
     { icon: icons.trash, danger: true, title: '删除扩展', onClick: () => askDeleteExt(themeStyle, item) },
-  ] : [
-    { icon: icons.plus, title: '添加扩展', onClick: btn => askAddMenu(themeStyle, btn, { point, slot, zone, group: item }) },
-    { icon: icons.trash, danger: true, title: '删除文件夹', onClick: () => askDeleteFolder(themeStyle, item, zone) },
-  ];
-  rowActions(actions).forEach(b => row.append(b));
+  ]).forEach(b => row.append(b));
   return row;
 }
 
 /* ---------- 行内新增 / 删除 ---------- */
 function askAddMenu(themeStyle, anchor, ctx) {
-  const item = (icon, label, onClick) => ({
-    label, onClick,
-    node: el('span', { class: 'pop-menu-label' },
-      el('span', { class: 'icon', html: icon }), label),
-  });
-  openPopMenu(anchor, [
-    item(icons.folder, '添加文件夹', () => askAddFolder(themeStyle, ctx)),
-    item(icons.puzzle, '添加扩展', () => askAddExtension(themeStyle, ctx)),
-  ]);
+  askAddExtension(themeStyle, ctx);
 }
 function confirmModal(title, desc, onConfirm, dangerText = '确认删除') {
   const body = el('div', {}, el('p', { class: 'sd-desc' }, desc));
@@ -508,22 +437,6 @@ function confirmModal(title, desc, onConfirm, dangerText = '确认删除') {
     { label: dangerText, danger: true, onClick: close => { onConfirm(); toast('已从草稿移除，待应用'); close(); rerender(); } },
   ]);
 }
-function askAddFolder(themeStyle, ctx) {
-  const nameInput = input({ placeholder: '文件夹名称' });
-  const body = el('div', {}, el('div', { class: 'sd-err', role: 'alert', hidden: true }), field('名称', nameInput));
-  openModal('添加文件夹', body, [{ label: '取消' }, { label: '创建', primary: true, onClick: close => {
-    const name = nameInput.value.trim();
-    const err = body.querySelector('.sd-err');
-    if (!name) { err.hidden = false; err.textContent = '请输入文件夹名称'; return; }
-    const zone = ctx.zone || (ctx.slot ? slotPointId(ctx.point.id, ctx.slot.id) : ctx.point.id);
-    if (dMenu().groups.some(g => g.name === name && g.zone === zone)) {
-      err.hidden = false; err.textContent = '已存在同名文件夹'; return;
-    }
-    dAddGroup(name, zone);
-    revealZone(themeStyle, ctx.point, zone);
-    toast('已添加文件夹：' + name + '（待应用）'); close(); rerender();
-  } }]);
-}
 function askAddExtension(themeStyle, ctx) {
   const pick = mountPicker();
   openModal('添加扩展', el('div', {}, field('扩展', pick.node)), [{ label: '取消' }, {
@@ -531,8 +444,7 @@ function askAddExtension(themeStyle, ctx) {
       const id = pick.value();
       if (!id) { toast('请选择扩展'); return; }
       const zone = ctx.zone || ctx.point.id;
-      if (ctx.group) dSetPlacement(id, { zone, slot: 'group:' + ctx.group.id });
-      else dSetMount(zone, id);
+      dSetMount(zone, id);
       revealZone(themeStyle, ctx.point, zone);
       toast('已添加：' + extName(id) + '（待应用）'); close(); rerender();
     },
@@ -544,48 +456,8 @@ function askDeleteExt(themeStyle, item) {
     () => {
       if (item.binding === 'slot') dSetMount(item.zone, null);
       else if (item.binding === 'point') dSetMount(item.point.id, null);
-      else dSetPlacement(item.extId, null);
     });
 }
-function askDeleteFolder(themeStyle, group, zone) {
-  const mounts = mountedAtZone(zone, 'group:' + group.id);
-  confirmModal('删除文件夹 · 需确认',
-    mounts.length ? `「${group.name}」内有 ${mounts.length} 个扩展，删除后会解除它们的挂载。`
-      : `确定删除文件夹「${group.name}」？`,
-    () => {
-      mounts.forEach(id => dSetPlacement(id, null));
-      dDeleteGroup(group.id);
-    });
-}
-function askClearSlot(themeStyle, point, slot) {
-  const zone = slotPointId(point.id, slot.id);
-  const groups = dMenu().groups.filter(g => g.zone === zone);
-  const extId = dResolve(themeStyle, { id: zone });
-  confirmModal('清空该段 · 需确认',
-    `将解除「${point.name} · ${slot.name}部」的扩展与 ${groups.length} 个文件夹。${extId ? '（含当前绑定）' : ''}`,
-    () => {
-      dSetMount(zone, null);
-      groups.forEach(g => { mountedAtZone(zone, 'group:' + g.id).forEach(id => dSetPlacement(id, null)); dDeleteGroup(g.id); });
-    }, '确认清空');
-}
-function askClearZone(themeStyle, point) {
-  const isStage = themeStyle.layout === 'stage' || !point.slots?.length;
-  confirmModal('删除挂载点 · 需确认',
-    isStage ? `确定删除自定义挂载点「${point.name}」？`
-      : `将清空「${point.name}」全部分段、文件夹与扩展绑定。`,
-    () => {
-      if (isStage) dDeleteCustomPoint(point.id);
-      else slotsOfZone(point.id).forEach(slot => {
-        const zone = slotPointId(point.id, slot.id);
-        dSetMount(zone, null);
-        dMenu().groups.filter(g => g.zone === zone).forEach(g => {
-          mountedAtZone(zone, 'group:' + g.id).forEach(id => dSetPlacement(id, null));
-          dDeleteGroup(g.id);
-        });
-      });
-    });
-}
-
 /* ---------- 操作弹窗 ---------- */
 function mountTargets() {
   const out = [];
@@ -608,10 +480,10 @@ function mountPicker() {
   const btn = el('button', { class: 'input select mount-pick', type: 'button' });
   const paint = () => {
     const t = targets.find(x => x.id === selectedId);
-    btn.replaceChildren(
-      t ? el('span', { class: 'icon', html: t.icon || icons.puzzle }) : null,
-      el('span', {}, t ? t.label : '请选择…'),
-    );
+    const nodes = [];
+    if (t) nodes.push(el('span', { class: 'icon', html: t.icon || icons.puzzle }));
+    nodes.push(el('span', {}, t ? t.label : '请选择…'));
+    btn.replaceChildren(...nodes);
   };
   btn.onclick = () => {
     const items = [];

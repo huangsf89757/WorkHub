@@ -11,12 +11,12 @@
  *     getMountEnabled, mountEnabledOf, setMountEnabled,
  *     getCustomThemeStylePoints, addCustomThemeStylePoint, updateCustomThemeStylePoint, deleteCustomThemeStylePoint
  *   openPopMenu
- *   ZONES, NAV_ZONES, PANEL_ZONES, placementOf, navExts, placementPicker,
- *   getMenuLayout, setPlacement, addGroup, updateGroup, deleteGroup,
+ *   ZONES, NAV_ZONES, PANEL_ZONES, ZONE_SLOTS, slotPointId, slotsOfZone,
+ *     resolveSlotMount, firstMountedExtId, entryExts, shortcutExtCandidates,
  *     getConfigSnapshot, applyConfigSnapshot
  *   extEnabled, setExtEnabled, EXT_STAGES, extStageLabel, extStageOf,
  *     isExtInstalled, installExt, uninstallExt, extNeedsUpdate, updateExt, isExtMounted
- *   themeColorNames, applyThemeColor, setDefaultStatus
+ *   themeColorNames, applyThemeColor
  *   SHORTCUT_ACTIONS, getShortcuts, setShortcut, resetShortcuts,
  *     getExtShortcuts, setExtShortcut, removeExtShortcut, shortcutExtCandidates,
  *     matchShortcut, comboFromEvent, formatShortcut, isModifierKey
@@ -59,15 +59,13 @@ export function getExtShortcuts() {
   return out;
 }
 
-/** 当前主题风格下「已添加且可用」的扩展，作为添加快捷键的候选 */
+/** 四区槽位中已挂载且可用的扩展，作为添加快捷键的候选 */
 export function shortcutExtCandidates() {
-  const themeStyle = getActiveThemeStyle();
   const usable = id => !!registry.get(id) && extEnabled(id);
-  const ids = new Set(navExts().map(e => e.id));
-  if (themeStyle) {
-    for (const point of getThemeStyleMountPoints(themeStyle)) {
-      if (!mountEnabledOf(themeStyle.id, point.id)) continue;
-      const id = resolveMount(themeStyle, point);
+  const ids = new Set();
+  for (const zone of Object.keys(ZONE_SLOTS)) {
+    for (const slot of slotsOfZone(zone)) {
+      const id = resolveSlotMount(zone, slot.id);
       if (id) ids.add(id);
     }
   }
@@ -344,7 +342,6 @@ export const ZONE_SLOTS = {
   right: [{ id: 'top', name: '上' }, { id: 'mid', name: '中' }, { id: 'bottom', name: '下' }],
   top: [{ id: 'left', name: '左' }, { id: 'mid', name: '中' }, { id: 'right', name: '右' }],
   bottom: [{ id: 'left', name: '左' }, { id: 'mid', name: '中' }, { id: 'right', name: '右' }],
-  'left-bottom': [{ id: 'left', name: '左' }, { id: 'mid', name: '中' }, { id: 'right', name: '右' }],
 };
 /** 槽位挂载点 ID：zone:slot，例如 left:top。 */
 export const slotPointId = (zone, slot) => `${zone}:${slot}`;
@@ -390,7 +387,6 @@ export function uninstallExt(id) {
   all[id] = { ...(all[id] || {}), installed: false };
   store.set('extInstallState', all);
   const enabled = store.get('extEnabled', {}); delete enabled[id]; store.set('extEnabled', enabled);
-  const layout = getMenuLayout(); delete layout.placement[id]; saveMenuLayout(layout);
   const themeStyle = getActiveThemeStyle();
   if (themeStyle) {
     const mounts = store.get('themeStyleMounts', {});
@@ -415,14 +411,13 @@ export function updateExt(id) {
   store.set('extInstallState', all);
   bus.emit('route');
 }
-/** 显式挂载：themeStyleMount 绑定、菜单 placement 声明或扩展自带 mounts。 */
+/** 显式挂载：themeStyleMounts 中任一挂载点（含槽位）绑定到该扩展。 */
 export function isExtMounted(id) {
   const themeStyle = getActiveThemeStyle();
   if (!themeStyle) return false;
   if (Object.values(getThemeStyleMounts(themeStyle.id)).includes(id)) return true;
-  if (getMenuLayout().placement[id]) return true;
-  const ext = registry.get(id);
-  return !!(ext?.mounts?.length || (ext && (ext.group ?? 'main') !== 'main'));
+  return Object.keys(ZONE_SLOTS).some(zone =>
+    slotsOfZone(zone).some(slot => resolveSlotMount(zone, slot.id) === id));
 }
 
 /* 系统页面（内核自带：扩展中心 / 设置 / 详情），不可停用
@@ -457,8 +452,7 @@ export function setExtEnabled(id, on) {
   map[id] = on;
   store.set('extEnabled', map);
   if (!on && router.extId === id) {
-    const first = navExts()[0];
-    router.go(first ? first.id : 'ext-center');
+    router.go(firstMountedExtId());
   } else {
     bus.emit('route');
   }
@@ -518,6 +512,48 @@ export function resolveMount(themeStyle, point) {
   return getThemeStyleMounts(themeStyle.id)[point.id] || point.defaultExt || null;
 }
 
+/** 解析槽位挂载：用户配置优先，回落主题风格 slotDefaults。 */
+export function resolveSlotMount(zone, slot) {
+  const themeStyle = getActiveThemeStyle();
+  if (!themeStyle) return null;
+  const pointId = slotPointId(zone, slot);
+  return getThemeStyleMounts(themeStyle.id)[pointId]
+    || themeStyle.slotDefaults?.[pointId]
+    || null;
+}
+
+/** 槽位上启用中的扩展记录（含系统页与规划扩展），未启用或未挂载返回 null。 */
+export function slotExtRecord(zone, slot) {
+  const themeStyle = getActiveThemeStyle();
+  if (!themeStyle) return null;
+  const id = resolveSlotMount(zone, slot);
+  if (!id || !extEnabled(id) || !mountEnabledOf(themeStyle.id, slotPointId(zone, slot))) return null;
+  const ext = registry.get(id);
+  if (ext) return ext;
+  const planned = getPlannedFeatures().find(f => f.id === id);
+  if (planned) return { id, name: planned.name, icon: planned.icon, desc: planned.desc, badge: null };
+  const meta = getSystemMeta(id);
+  if (meta) return {
+    id,
+    name: typeof meta.title === 'function' ? meta.title({}) : (meta.title || id),
+    icon: id === 'settings' ? icons.settings : icons.puzzle,
+    desc: id === 'ext-center' ? '扩展中心' : '设置',
+    badge: null,
+  };
+  return null;
+}
+
+/** 首个已挂载且启用的扩展 ID，用于系统页退出后的回退。 */
+export function firstMountedExtId() {
+  for (const zone of ['left', 'top', 'right', 'bottom']) {
+    for (const slot of slotsOfZone(zone)) {
+      const record = slotExtRecord(zone, slot.id);
+      if (record) return record.id;
+    }
+  }
+  return 'ext-center';
+}
+
 /** 主题风格声明的挂载点 + 用户自定义挂载点；panels 主题风格未声明时回落到五区（兼容第三方主题风格）
  *  自定义点存 themeStylePoints[themeStyleId]，供主题风格详情页增删；stage 主题风格渲染时据此新增实物。 */
 export function getThemeStyleMountPoints(themeStyle) {
@@ -565,13 +601,14 @@ export function deleteCustomThemeStylePoint(themeStyleId, pointId) {
   return true;
 }
 /** 浮层菜单（锚在按钮下方，自动夹紧到视口）— 供系统页复用
- *  支持 { sep:true } 分隔线；role=menu + 方向键导航 + Esc 关闭。 */
+ *  支持 { sep:true } 分隔线、{ header:true, label } 分组标题；role=menu + 方向键导航 + Esc 关闭。 */
 export function openPopMenu(anchor, items) {
   document.querySelector('.pop-menu')?.remove();
   const menu = el('div', { class: 'pop-menu', role: 'menu' });
   const buttons = [];
   items.forEach(item => {
     if (item.sep) { menu.append(el('div', { class: 'pop-menu-sep', role: 'separator' })); return; }
+    if (item.header) { menu.append(el('div', { class: 'pop-menu-head', role: 'presentation' }, item.label)); return; }
     const btn = el('button', {
       class: 'pop-menu-item' + (item.active ? ' active' : '') + (item.danger ? ' danger' : ''),
       role: 'menuitem',
@@ -608,7 +645,7 @@ export function openPopMenu(anchor, items) {
   buttons[0]?.focus();
 }
 
-/** 扩展在当前主题风格下的挂载位置文案：stage 按实物反查，panels 沿用五区编排 */
+/** 扩展在当前主题风格下的挂载位置文案：stage 按实物反查，panels 按槽位反查 */
 export function mountLabelOfExt(themeStyle, ext) {
   const points = getThemeStyleMountPoints(themeStyle);
   // 用户显式挂载（含配置树写入的槽位级 pointId，如 left:mid）
@@ -629,46 +666,24 @@ export function mountLabelOfExt(themeStyle, ext) {
       ? { label: `${point.name} · ${themeStyle.name}`, pointId: point.id }
       : { label: '未挂载', pointId: null };
   }
-  const place = placementOf(ext);
-  if (place.zone === 'top') return { label: '顶部栏', pointId: 'top' };
-  if (place.zone === 'left') {
-    return {
-      label: place.slot === 'main' || !place.slot ? '左侧 · 主菜单' : '左侧 · 文件夹',
-      pointId: 'left',
-    };
-  }
-  return { label: ZONES[place.zone]?.label || place.zone, pointId: place.zone };
+  return { label: '未挂载', pointId: null };
 }
 
 /* ============================================================
-   7. 菜单布局（nav 区：left / top 的位置编排）
+   7. 挂载配置快照（主题风格详情页草稿编辑）
    ============================================================ */
-// v1 曾预置三个空文件夹；默认工作台不预置任何分组，存量数据也一并过滤
-const LEGACY_GROUP_IDS = ['g-work', 'g-knowledge', 'g-tools'];
-const defaultMenuLayout = () => ({ groups: [], placement: {} });
-export function getMenuLayout() {
-  const layout = store.get('menuLayout', { groups: [], placement: {} });
-  for (const group of layout.groups) if (!group.zone) group.zone = 'left'; // 迁移旧数据
-  layout.groups = layout.groups.filter(g => !LEGACY_GROUP_IDS.includes(g.id));
-  if (!layout.groups.length && !Object.keys(layout.placement).length) return defaultMenuLayout();
-  return layout;
-}
-function saveMenuLayout(layout) { store.set('menuLayout', layout); bus.emit('route'); }
-
 /** 挂载配置快照：供主题风格详情页做草稿编辑；应用时一次性写回。 */
 export function getConfigSnapshot(themeStyleId) {
   const clone = v => JSON.parse(JSON.stringify(v));
   return {
-    menuLayout: clone(getMenuLayout()),
     themeStyleMounts: clone(getThemeStyleMounts(themeStyleId)),
     themeStylePoints: clone(getCustomThemeStylePoints(themeStyleId)),
     extEnabled: clone(store.get('extEnabled', {})),
     mountEnabled: clone(store.get('mountEnabled', {})),
   };
 }
-/** 应用挂载配置快照：写回菜单分组 / 挂载点 / 扩展启用态并触发全局重渲染。 */
+/** 应用挂载配置快照：写回挂载点 / 自定义点 / 扩展启用态并触发全局重渲染。 */
 export function applyConfigSnapshot(themeStyleId, snap) {
-  store.set('menuLayout', snap.menuLayout);
   const mounts = store.get('themeStyleMounts', {});
   mounts[themeStyleId] = snap.themeStyleMounts;
   store.set('themeStyleMounts', mounts);
@@ -678,116 +693,6 @@ export function applyConfigSnapshot(themeStyleId, snap) {
   store.set('extEnabled', snap.extEnabled);
   store.set('mountEnabled', snap.mountEnabled || {});
   bus.emit('route');
-}
-
-/** place: null(左侧主菜单) | {zone:'top'} | {zone:'left'|'top', slot:'group:<gid>'} */
-export function setPlacement(extId, place) {
-  const layout = getMenuLayout();
-  if (place) layout.placement[extId] = place;
-  else delete layout.placement[extId];
-  saveMenuLayout(layout);
-}
-export function addGroup(name, zone = 'left') {
-  const layout = getMenuLayout();
-  const group = { id: 'g' + Date.now().toString(36), name, zone, collapsed: false };
-  layout.groups.push(group);
-  saveMenuLayout(layout);
-  return group;
-}
-export function updateGroup(gid, patch) {
-  const layout = getMenuLayout();
-  const group = layout.groups.find(g => g.id === gid);
-  if (group) Object.assign(group, patch);
-  saveMenuLayout(layout);
-}
-export function deleteGroup(gid) {
-  const layout = getMenuLayout();
-  layout.groups = layout.groups.filter(g => g.id !== gid);
-  for (const [extId, place] of Object.entries(layout.placement)) {
-    if (place?.slot === 'group:' + gid) delete layout.placement[extId];
-  }
-  saveMenuLayout(layout);
-}
-export function placementOf(ext) {
-  if ((ext.group ?? 'main') !== 'main') return { zone: 'left', slot: ext.group };
-  const place = getMenuLayout().placement[ext.id];
-  if (!place) return { zone: 'left', slot: 'main' };
-  if (place.slot?.startsWith('group:')) {
-    const group = getMenuLayout().groups.find(g => 'group:' + g.id === place.slot);
-    if (!group || group.zone !== place.zone) {
-      return place.zone === 'left' ? { zone: 'left', slot: 'main' } : { zone: place.zone };
-    }
-  }
-  return place;
-}
-/** 侧栏可视顺序：left 主菜单 → left 分组 → top */
-export const navExts = () => {
-  const layout = getMenuLayout();
-  const enabled = registry.list.filter(e => isExtInstalled(e.id) && extEnabled(e.id) && (e.group ?? 'main') !== 'soon');
-  const ordered = enabled.filter(e => {
-    const p = placementOf(e);
-    return p.zone === 'left' && p.slot === 'main';
-  });
-  for (const group of layout.groups.filter(g => g.zone === 'left')) {
-    ordered.push(...enabled.filter(e => {
-      const p = placementOf(e);
-      return p.zone === 'left' && p.slot === 'group:' + group.id;
-    }));
-  }
-  ordered.push(...enabled.filter(e => placementOf(e).zone === 'top'));
-  return ordered;
-};
-
-/** 位置选择弹窗（加入 left/top 的某处） */
-export function placementPicker(ext, onDone) {
-  const layout = getMenuLayout();
-  const current = placementOf(ext);
-  let picked = current.slot === 'main' || !current.slot
-    ? (current.zone === 'left' ? 'main' : current.zone)
-    : current.slot;
-  let newGroupName = '';
-
-  const rows = [];
-  const head = text => rows.push(el('div', { class: 'pick-zone-label' }, text));
-  const radio = (value, label) => {
-    const control = el('input', { type: 'radio', name: 'place', value });
-    control.checked = picked === value;
-    control.addEventListener('change', () => { picked = value; });
-    rows.push(el('label', { class: 'pick-row' }, control, el('span', {}, label)));
-  };
-
-  head(ZONES.left.label);
-  radio('main', '左侧 · 主菜单（一级）');
-  for (const group of layout.groups.filter(g => g.zone === 'left')) {
-    radio('group:' + group.id, '左侧 · 文件夹：' + group.name);
-  }
-  head(ZONES.top.label);
-  radio('top', '顶部 · 主菜单（一级）');
-
-  const newInput = input({ placeholder: '新文件夹名称' });
-  newInput.addEventListener('focus', () => { picked = '__new__'; });
-  newInput.addEventListener('input', () => { picked = '__new__'; newGroupName = newInput.value.trim(); });
-  rows.push(el('div', { class: 'pick-new' },
-    el('span', { class: 'pick-zone-label', style: 'margin:0' }, '＋ 新建左侧文件夹'), newInput));
-
-  openModal(`添加「${ext.name}」到`, el('div', { class: 'pick-list' }, rows), [
-    { label: '取消' },
-    { label: '确定', primary: true, onClick: close => {
-      if (picked === '__new__' && newGroupName) {
-        const group = addGroup(newGroupName, 'left');
-        setPlacement(ext.id, { zone: 'left', slot: 'group:' + group.id });
-      } else if (picked === 'main') {
-        setPlacement(ext.id, null);
-      } else if (picked === 'top') {
-        setPlacement(ext.id, { zone: 'top' });
-      } else if (picked?.startsWith('group:')) {
-        const group = layout.groups.find(g => 'group:' + g.id === picked);
-        setPlacement(ext.id, { zone: group?.zone || 'left', slot: picked });
-      }
-      close();
-      onDone?.();
-    } },
-  ]);
 }
 
 /* ============================================================
@@ -971,64 +876,33 @@ function navItem(ext, index) {
     index != null && index < 9 ? el('span', { class: 'kbd nav-kbd' }, `⌘${index + 1}`) : null);
 }
 
+/** 左侧栏按上/中/下三段渲染，每段最多一个入口。 */
 function renderLeft() {
   const box = $('zoneLeft');
   if (!box) return;
   box.innerHTML = '';
-  const layout = getMenuLayout();
-  const ordered = navExts();
-
-  const main = ordered.filter(e => {
-    const p = placementOf(e);
-    return p.zone === 'left' && p.slot === 'main';
-  });
-  main.forEach((ext, i) => box.append(navItem(ext, i)));
-
-  for (const group of layout.groups.filter(g => g.zone === 'left')) {
-    const items = ordered.filter(e => {
-      const p = placementOf(e);
-      return p.zone === 'left' && p.slot === 'group:' + group.id;
-    });
-    if (!items.length && !group.persist) continue;
-    box.append(el('button', {
-      class: 'nav-group-head',
-      title: `${group.name}（${items.length}）· 点击折叠或展开`,
-      onclick: () => updateGroup(group.id, { collapsed: !group.collapsed }),
-    },
-      el('span', { class: 'icon chev' + (group.collapsed ? '' : ' open'), html: icons.chevronDown }),
-      el('span', { class: 'nav-group-name' }, group.name),
-      el('span', { class: 'nav-group-count' }, String(items.length))));
-    if (!group.collapsed) items.forEach(ext => box.append(navItem(ext)));
-  }
-
-  box.append(el('div', { class: 'nav-spacer' }));
-  // 左侧栏底部挂载点：展示其绑定的扩展（走 getThemeStyleMounts/resolveMount，与主题风格详情配置同源）
-  const themeStyle = getActiveThemeStyle();
-  const slot = getThemeStyleMountPoints(themeStyle).find(p => p.id === 'left-bottom');
-  const slotExtId = slot ? resolveMount(themeStyle, slot) : null;
-  if (slotExtId && extEnabled(slotExtId) && mountEnabledOf(themeStyle.id, slot.id)) {
-    const ext = registry.get(slotExtId);
-    const planned = getPlannedFeatures().find(f => f.id === slotExtId);
-    const sys = slotExtId === 'ext-center' ? '扩展中心' : slotExtId === 'settings' ? '设置' : null;
-    box.append(el('button', {
-      class: 'nav-item nav-sys',
-      title: `${slot.name} · ${ext?.name || planned?.name || sys || slotExtId}`,
-      onclick: () => router.go(slotExtId),
-    },
-      el('span', { class: 'icon', html: ext?.icon || planned?.icon || icons.puzzle }),
-      el('span', { class: 'nav-name' }, ext?.name || planned?.name || sys || slotExtId)));
+  for (const slot of slotsOfZone('left')) {
+    const cell = el('div', { class: 'zone-slot', 'data-slot': slot.id });
+    const ext = slotExtRecord('left', slot.id);
+    if (ext) cell.append(navItem(ext));
+    box.append(cell);
   }
 }
 
+/** 顶栏挂载区按左/中/右三段渲染，两侧固定模块不参与挂载。 */
 function renderTop() {
   const box = $('zoneTopMounts');
   if (!box) return;
   box.innerHTML = '';
-  const items = navExts().filter(e => placementOf(e).zone === 'top');
-  items.forEach(ext => box.append(el('button', {
-    class: 'top-item' + (router.extId === ext.id ? ' active' : ''),
-    onclick: () => router.go(ext.id),
-  }, el('span', { class: 'icon', html: ext.icon }), el('span', {}, ext.name))));
+  for (const slot of slotsOfZone('top')) {
+    const cell = el('div', { class: 'top-slot', 'data-slot': slot.id });
+    const ext = slotExtRecord('top', slot.id);
+    if (ext) cell.append(el('button', {
+      class: 'top-item' + (router.extId === ext.id ? ' active' : ''),
+      onclick: () => router.go(ext.id),
+    }, el('span', { class: 'icon', html: ext.icon }), el('span', {}, ext.name)));
+    box.append(cell);
+  }
 }
 
 function renderCenter() {
@@ -1102,21 +976,18 @@ function renderCenter() {
   box.scrollTop = 0;
 }
 
-/** 返回挂载到某个 entry 区（right/bottom）的已启用扩展，去重。来源：菜单编排 + 主题风格挂载点。 */
+/** 返回某个 entry 区（right/bottom）三段槽位上已启用的扩展，按槽位顺序去重。 */
 export function entryExts(zone) {
-  const themeStyle = getActiveThemeStyle();
-  const ids = new Set();
-  registry.list.forEach(ext => {
-    if (!extEnabled(ext.id)) return;
-    if (placementOf(ext).zone === zone) ids.add(ext.id);
-  });
-  getThemeStyleMountPoints(themeStyle)
-    .filter(p => p.id === zone)
-    .forEach(p => {
-      const id = resolveMount(themeStyle, p);
-      if (id && extEnabled(id) && mountEnabledOf(themeStyle.id, p.id) && registry.get(id)) ids.add(id);
-    });
-  return [...ids].map(id => registry.get(id));
+  const out = [];
+  const seen = new Set();
+  for (const slot of slotsOfZone(zone)) {
+    const ext = slotExtRecord(zone, slot.id);
+    if (ext && !seen.has(ext.id)) {
+      seen.add(ext.id);
+      out.push(ext);
+    }
+  }
+  return out;
 }
 
 /** entry 区入口按钮：只挂载 launcher，点击进 center 显示该扩展详情。 */
@@ -1142,61 +1013,36 @@ export function toggleRightPanel() {
   bus.emit('route');
 }
 
+/** 右侧栏按上/中/下三段渲染，每段最多一个入口。 */
 function renderRight() {
   const panel = $('zoneRight');
   const body = $('zoneRightBody');
   if (!panel || !body) return;
-  const items = entryExts('right');
-  panel.hidden = !items.length || store.get('rightCollapsed', false);
-  document.body.classList.toggle('right-hidden', panel.hidden);
-  if (items.length) {
-    body.innerHTML = '';
-    items.forEach(ext => body.append(entryItem(ext)));
+  body.innerHTML = '';
+  for (const slot of slotsOfZone('right')) {
+    const cell = el('div', { class: 'zone-slot', 'data-slot': slot.id });
+    const ext = slotExtRecord('right', slot.id);
+    if (ext) cell.append(entryItem(ext));
+    body.append(cell);
   }
+  panel.hidden = !body.querySelector('.entry-item') || store.get('rightCollapsed', false);
+  document.body.classList.toggle('right-hidden', panel.hidden);
 }
 
-let defaultStatus = null;
-export function setDefaultStatus(fn) { defaultStatus = fn; }
-/** 底部窄提示：去掉平台前缀里的空格，保留紧凑符号 */
-const hintOf = combo => {
-  const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
-  return combo.split('+').map(p => ({
-    mod: isMac ? '⌘' : 'Ctrl', ctrl: 'Ctrl', meta: '⌘', alt: 'Alt', shift: '⇧',
-    esc: 'Esc', space: 'Space',
-  })[p] || (p === '1-9' ? '1-9' : p.toUpperCase())).join('');
-};
-
+/** 底部栏按左/中/右三段渲染；状态文字与快捷键提示已移除。 */
 function renderBottom() {
-  const label = $('zoneBottomLabel');
-  if (!label) return;
-  // 底栏只显示系统级状态；扩展详情（含统计）统一在 center
-  label.textContent = defaultStatus?.() ?? '';
-  const bar = $('zoneBottom');
-  bar?.querySelectorAll('.bottom-entry').forEach(n => n.remove());
-  entryExts('bottom').forEach(ext => {
-    const btn = el('button', {
+  const box = $('zoneBottom');
+  if (!box) return;
+  box.innerHTML = '';
+  for (const slot of slotsOfZone('bottom')) {
+    const cell = el('div', { class: 'bottom-slot', 'data-slot': slot.id });
+    const ext = slotExtRecord('bottom', slot.id);
+    if (ext) cell.append(el('button', {
       class: 'bottom-entry' + (router.extId === ext.id ? ' active' : ''),
       title: `打开「${ext.name}」`,
       onclick: () => router.go(ext.id),
-    }, el('span', { class: 'icon', html: ext.icon }), ext.name);
-    label.before(btn);
-  });
-  const sc = getShortcuts();
-  const hints = { hintBack: sc.back, hintSettings: sc.settings };
-  for (const [id, combo] of Object.entries(hints)) {
-    const node = $(id);
-    if (node) node.textContent = hintOf(combo);
-  }
-  // 底部只提示用户实际绑定过的扩展快捷键（取第一个，避免拥挤）
-  const extHint = $('hintExtShortcut');
-  if (extHint) {
-    const [extId, combo] = Object.entries(getExtShortcuts())[0] || [];
-    extHint.hidden = !extId;
-    if (extId) {
-      const key = $('hintExtKey'), name = $('hintExtName');
-      if (key) key.textContent = hintOf(combo);
-      if (name) name.textContent = registry.get(extId)?.name || extId;
-    }
+    }, el('span', { class: 'icon', html: ext.icon }), ext.name));
+    box.append(cell);
   }
 }
 
@@ -1251,9 +1097,7 @@ export function applyThemeStyleLayout() {
 export function leaveSystem() {
   const themeStyle = getActiveThemeStyle();
   if (themeStyle?.renderStage) { router.back(); return; }
-  const first = navExts()[0];
-  if (first) router.go(first.id);
-  else router.back();
+  router.go(firstMountedExtId());
 }
 
 /* ---------- 数据变更重绘：保留焦点、光标位置与滚动位置 ----------
@@ -1642,8 +1486,6 @@ export function boot() {
   if (themeStyle?.renderStage) {
     router.back(); // stage 主题风格：启动即展示主舞台
   } else {
-    const first = navExts()[0];
-    if (first) router.go(first.id);
-    else renderAll();
+    router.go(firstMountedExtId());
   }
 }

@@ -4,7 +4,7 @@
  * 新增业务扩展：新建 ext-<id>.js，在此 import（registry.add 自注册）。
  * 新增 UI 主题风格：新建 theme-style-<id>.js，在此 import（registerThemeStyle 自注册）。
  */
-import { boot, setDefaultStatus, setPlannedFeatures, setRefreshHandler } from './core.js';
+import { boot, setPlannedFeatures, setRefreshHandler } from './core.js';
 import { refreshData } from './data-refresh.js';
 import { state } from './data.js';
 import { initStorage, flush } from './storage.js';
@@ -20,11 +20,9 @@ import './pages.js';              // 副作用：注册内核系统页面（扩�
 import { restoreOutbox } from './sync.js'; // 同步引擎（骨架 + Supabase CloudAdapter）
 import { initCloudSync } from './cloud-sync.js'; // 云端同步引导（无配置则 no-op）
 import planned from './features.js';
-import platform from './platform.js';
 
 setPlannedFeatures(planned);
 
-setDefaultStatus(() => platform.label);
 setRefreshHandler(refreshData);
 
 /* 存储恢复完成后启动 UI；失败也不阻塞启动（降级为空数据） */

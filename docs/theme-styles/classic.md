@@ -16,7 +16,7 @@ registerThemeStyle({
   icon: icons.dashboard,
   desc: '...',
   layout: 'panels',
-  mountPoints: [ /* left / top / center / right / bottom / left-bottom，见下表 */ ],
+  mountPoints: [ /* left / top / right / bottom，见下表 */ ],
   // 无 renderStage：走内核默认五区渲染
 });
 ```
@@ -27,23 +27,23 @@ registerThemeStyle({
 
 ```
 ┌──────────────────────────────────────────────┐
-│  top     主菜单 · 一级入口（横向扩展快捷入口）      │
+│  top     左/中/右挂载区（brand 与用户入口固定）     │
 ├──────────┬───────────────────────┬────────────┤
 │  left    │      center           │   right    │
-│ 主菜单    │   主内容区             │  功能面板    │
-│ 一级入口  │   home / detail       │  panel(ctx) │
+│ 上/中/下  │   主内容区             │  上/中/下   │
+│ 挂载区    │   home / detail       │  挂载区     │
 ├──────────┴───────────────────────┴────────────┤
-│  bottom  功能状态条  status(ctx)                │
+│  bottom  左/中/右挂载区                          │
 └──────────────────────────────────────────────┘
 ```
 
 | 区 | 角色 | 数据来源 |
 |---|---|---|
-| `top` | nav | placement.zone=top 的扩展 |
-| `left` | nav | placement.zone=left 的扩展 + 自定义分组 |
+| `top` | nav | `themeStyleMounts[classic]['top:left\|mid\|right']` |
+| `left` | nav | `themeStyleMounts[classic]['left:top\|mid\|bottom']` |
 | `center` | content | 当前扩展 `home()` / `detail()` / 系统页 |
-| `right` | panel | 当前扩展 `panel(ctx)`，无则隐藏 |
-| `bottom` | panel | 当前扩展 `status(ctx)`，缺省用内核状态 |
+| `right` | panel | `themeStyleMounts[classic]['right:top\|mid\|bottom']`，无入口则隐藏 |
+| `bottom` | panel | `themeStyleMounts[classic]['bottom:left\|mid\|right']` |
 
 窄屏（<900px）自动隐藏 right，<760px 时 left 变抽屉（通过 `navToggle` + backdrop 唤出）。
 
@@ -71,12 +71,13 @@ registerThemeStyle({
 
 - 依赖 `core.js` 五区渲染（`renderLeft/Top/Center/Right/Bottom`）+ `applyThemeStyleLayout()`
 - 无专属 `settingsPanel()`（设置页主题风格卡只做切换）
-- 声明 6 个 `mountPoints`（五区 + `left-bottom` 次级挂载点），供扩展中心展示；扩展挂载位置用 `placementOf()` 解析，点击标签走 `placementPicker()`
-- 扩展中心中 任务显示为「左侧 · 主菜单」；切到其他主题风格后该文案会随主题风格变化
+- 声明 4 个 `mountPoints`（`left` / `top` / `right` / `bottom`；`center` 是内容区不作挂载点）及三段 `slots`，供扩展中心展示；扩展挂载位置用 `resolveSlotMount()` 解析
+- `slotDefaults: { 'left:top': 'ext-center' }` 在用户未配置该槽位时兜底，保证空配置也能进入扩展中心
+- 扩展中心中 任务显示为「左侧栏 · 上部」这类槽位文案；切到其他主题风格后该文案会随主题风格变化
 
 ## 7. 切换行为
 
 从其他主题风格切回 classic：
 1. `setActiveThemeStyle('classic')` 写偏好 `themeStyle='classic'`（物理键 `wh_sys_settings_themeStyle`），发 `themeStyle` 与 `route` 事件
 2. `applyThemeStyleLayout()` 设 `data-theme-style=classic`、`data-theme-style-layout=panels`
-3. CSS 恢复五区显隐；`boot()` 下次启动进入第一个导航扩展（非舞台态）
+3. CSS 恢复五区显隐；`boot()` 下次启动进入第一个已挂载且启用的扩展（非舞台态）

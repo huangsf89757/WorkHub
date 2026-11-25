@@ -37,7 +37,7 @@ const DOMAIN_TABLE = Object.freeze({
 
 /** 偏好/身份逻辑 key（存进 sys_settings 表命名空间） */
 const PREF_KEYS = Object.freeze(new Set([
-  'themeColor', 'themeStyle', 'themeStyleMounts', 'themeStylePoints', 'menuLayout',
+  'themeColor', 'themeStyle', 'themeStyleMounts', 'themeStylePoints',
   'extEnabled', 'mountEnabled', 'extInstallState', 'rightCollapsed', 'shortcuts', 'searchRules',
   'leftW', 'rightW', 'bottomH', 'navCollapsed', // 五区拖拽后的尺寸与左栏收起偏好
   'todoLastGroupId', // 新建任务弹窗上次选择的分组（下次默认选中）

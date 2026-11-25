@@ -13,7 +13,6 @@ const {
 await import('../js/theme-style-classic.js');
 
 function setup() {
-  store.set('menuLayout', { groups: [], placement: {} });
   store.set('extEnabled', {});
   store.set('themeStyleMounts', {});
   store.set('mountEnabled', {});
