@@ -127,3 +127,16 @@ test('任务首页可渲染，工具栏按钮均带可用点击回调', () => {
     assert.equal(typeof button.listeners.click, 'function');
   }
 });
+
+test('任务首页头部收进 sticky 容器，列表作为后续兄弟节点', () => {
+  const page = core.registry.get('todo').home();
+  const hasClass = (node, cls) => node.nodeType === 1 && String(node.className || '').split(/\s+/).includes(cls);
+  const head = page.children.find(node => hasClass(node, 'todo-sticky-head'));
+  assert.ok(head, '应存在 .todo-sticky-head 固定头部容器');
+  assert.equal(page.children[0], head, '固定头部应为页面首个子节点');
+  for (const cls of ['page-header', 'ext-toolbar', 'ext-tabs']) {
+    assert.ok(head.children.some(node => hasClass(node, cls)), `固定头部应包含 .${cls}`);
+  }
+  assert.ok(page.children.some(node => hasClass(node, 'todo-body')), '.todo-body 应为页面直接子节点');
+  assert.ok(!head.children.some(node => hasClass(node, 'todo-body')), '.todo-body 不应被收进固定头部');
+});

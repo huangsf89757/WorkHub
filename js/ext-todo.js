@@ -6,7 +6,7 @@
  */
 import {
   el, registry, icons, router, pageHeader, openModal, input, toast, bus, field, refreshAllData, openPopMenu,
-  extHomePage, extToolbar, extToolButton, extTabs, store,
+  extToolbar, extToolButton, extTabs, store,
 } from './core.js';
 import {
   state, declareDomain, insert, update, remove, alive, byId,
@@ -953,16 +953,13 @@ registry.add({
       onclick: refreshAllData,
     }, el('span', { class: 'icon', html: icons.refresh }));
 
-    const page = extHomePage({
-      title: el('span', { class: 'todo-title-row' }, '任务', refreshBtn),
-      toolbar: toolbar(),
-      tabs,
-      body: [
-        groupBy === 'group' ? headerRow() : null,
-        body,
-      ],
-    });
-    page.classList.add('todo-page');
+    const page = el('div', { class: 'page ext-page todo-page' },
+      el('div', { class: 'todo-sticky-head' },
+        pageHeader({ title: el('span', { class: 'todo-title-row' }, '任务', refreshBtn) }),
+        toolbar(),
+        tabs,
+        groupBy === 'group' ? headerRow() : null),
+      body);
     return page;
   },
 

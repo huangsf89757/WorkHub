@@ -713,6 +713,14 @@ body[data-page="system"] .top-system { display: flex; }
 /* ============================================================
    任务扩展（首个业务扩展样板）
    ============================================================ */
+/* 固定头部：页头 + 工具栏 + tabs + 列标题随内容滚动时贴顶 */
+.todo-sticky-head {
+  position: sticky;
+  top: 0;
+  z-index: 10;
+  background: var(--bg-panel);
+  display: flow-root;
+}
 /* 扩展通用模板：工具栏（旧 .todo-* 别名保留兼容） */
 .ext-toolbar, .todo-toolbar-fs { display: flex; align-items: center; gap: 4px; flex-wrap: wrap; margin-bottom: 10px; }
 .todo-new { gap: 5px; }
