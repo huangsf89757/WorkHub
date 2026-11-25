@@ -472,6 +472,15 @@ body[data-page="system"] .nav-toggle,
 body[data-page="system"] .top-right,
 body[data-page="system"] .brand { display: none !important; }
 body[data-page="system"] .zone-center { border: none; }
+
+/* 独立窗口（focus）：只保留 center 扩展视图，隐藏五区外壳 */
+body[data-focus="1"] .zone-top,
+body[data-focus="1"] .zone-left,
+body[data-focus="1"] .zone-right,
+body[data-focus="1"] .zone-bottom,
+body[data-focus="1"] .backdrop { display: none !important; }
+body[data-focus="1"] .zone-center { border: none; }
+
 /* 系统页顶栏：返回按钮 + 页面标题（替换 brand 位置） */
 .top-system { display: none; align-items: center; gap: 12px; min-width: 0; }
 body[data-page="system"] .top-system { display: flex; }

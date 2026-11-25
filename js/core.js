@@ -623,11 +623,17 @@ export const router = {
   back() { this.extId = null; this.mode = 'home'; this.id = null; syncHash(); bus.emit('route'); },
 };
 
-/** 打开扩展主页的浏览器独立窗口；被拦截时提示。 */
+/** 当前是否为扩展独立窗口（专注模式）：URL 带 focus=1。 */
+export const isFocusMode = () => typeof location !== 'undefined'
+  && new URLSearchParams(location.search).get('focus') === '1';
+
+/** 打开扩展主页的浏览器独立窗口（专注模式：仅显示 center 扩展视图）；被拦截时提示。 */
 export function openExtensionWindow(extId) {
   if (!extId) return;
-  const url = `${location.pathname}${location.search}${buildRoute({ extId, mode: 'home' })}`;
-  const win = window.open(url, '_blank');
+  const url = new URL(location.href);
+  url.searchParams.set('focus', '1');
+  url.hash = buildRoute({ extId, mode: 'home' });
+  const win = window.open(url.href, '_blank');
   if (!win) { toast('独立窗口被浏览器拦截，请允许弹窗后重试'); return; }
   win.opener = null;
 }
@@ -758,22 +764,24 @@ function renderCenter() {
     : ext.home ? ext.home(ctx)
     : el('div', { class: 'empty' }, '该扩展尚未提供内容视图');
 
-  // stage 皮肤下：扩展视图统一带"返回舞台"条
-  if (skin?.renderStage && skin.stageBack !== false) {
+  // stage 皮肤下：扩展视图统一带"返回舞台"条（独立窗口无舞台，不显示）
+  if (!isFocusMode() && skin?.renderStage && skin.stageBack !== false) {
     box.append(el('button', { class: 'stage-back', onclick: () => router.back() },
       el('span', { class: 'icon', html: icons.back }), `返回${skin.name}`));
   }
-  // 统一工具条：所有扩展视图（home/detail）都可打开浏览器独立窗口。
-  // 优先并入 view 的 page-header actions（与标题同一行）；无 page-header 时退化为独立工具条。
-  const windowBtn = el('button', {
-    class: 'ext-window-btn',
-    title: '在独立浏览器窗口打开该扩展',
-    'aria-label': `在独立窗口打开「${ext.name}」`,
-    onclick: () => openExtensionWindow(ext.id),
-  }, el('span', { class: 'icon', html: icons.external }), '独立窗口打开');
-  const headerActions = view.querySelector?.('.page-header .header-actions');
-  if (headerActions) headerActions.append(windowBtn);
-  else box.append(el('div', { class: 'ext-view-tools' }, windowBtn));
+  // 统一工具条：非独立窗口时提供"独立窗口打开"入口。
+  // 独立窗口内自身已是目标视图，不再重复注入该按钮。
+  if (!isFocusMode()) {
+    const windowBtn = el('button', {
+      class: 'ext-window-btn',
+      title: '在独立浏览器窗口打开该扩展',
+      'aria-label': `在独立窗口打开「${ext.name}」`,
+      onclick: () => openExtensionWindow(ext.id),
+    }, el('span', { class: 'icon', html: icons.external }), '独立窗口打开');
+    const headerActions = view.querySelector?.('.page-header .header-actions');
+    if (headerActions) headerActions.append(windowBtn);
+    else box.append(el('div', { class: 'ext-view-tools' }, windowBtn));
+  }
   box.append(view);
   box.scrollTop = 0;
 }
@@ -1057,6 +1065,7 @@ export function openUserPanel() {
    ============================================================ */
 export function boot() {
   applyTheme(store.get('theme', 'dark'));
+  if (isFocusMode()) document.body.dataset.focus = '1';
   // localStorage 镜像写入失败（配额满等）：SQLite 仍可保存，仅提示一次，避免用户无感知
   let warned = false;
   bus.on('store:error', () => {
@@ -1090,6 +1099,8 @@ export function boot() {
       if (document.querySelector('.pop-menu') || document.querySelector('.todo-menu')) return;
       if (document.getElementById('userPop')) { closeUserPop(); return; }
       event.preventDefault();
+      // 独立窗口没有舞台，Esc 只在扩展内 detail→home，不回舞台留下空白
+      if (isFocusMode()) { if (router.mode === 'detail') router.home(); return; }
       const skin = getActiveSkin();
       if (skin?.renderStage && router.extId) { router.back(); return; }
       if (router.mode === 'detail') router.home();
