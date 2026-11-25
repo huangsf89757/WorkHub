@@ -72,7 +72,7 @@ registerSkin({
 - 依赖 `core.js` 五区渲染（`renderLeft/Top/Center/Right/Bottom`）+ `applySkinLayout()`
 - 无专属 `settingsPanel()`（设置页界面样式卡只做切换）
 - 声明 6 个 `mountPoints`（五区 + `left-bottom` 次级挂载点），供扩展中心展示；扩展挂载位置用 `placementOf()` 解析，点击标签走 `placementPicker()`
-- 扩展中心中 TODO 显示为「左侧 · 主菜单」；切到其他界面样式后该文案会随界面样式变化
+- 扩展中心中 任务显示为「左侧 · 主菜单」；切到其他界面样式后该文案会随界面样式变化
 
 ## 7. 切换行为
 

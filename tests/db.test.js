@@ -128,7 +128,7 @@ test('导出 SQLite 原始字节：是合法的 SQLite 文件，且能读到已�
   assert.match(databaseFileName(new Date(2026, 10, 23, 9, 5)), /^workhub-db-20261123-0905\.sqlite$/);
 });
 
-test('v6→最新迁移：删除扩展表/家庭表、剥离归属 meta、outbox 去 pushed、TODO 数据保留、版本收敛到 8', async () => {
+test('v6→最新迁移：删除扩展表/家庭表、剥离归属 meta、outbox 去 pushed、任务数据保留、版本收敛到 8', async () => {
   const SQL = await initSqlJs({ wasmBinary });
   const old = new SQL.Database();
   // 模拟 v6 库：版本表无约束（可多行）、家庭/扩展表、带归属字段的 todo、含 pushed 的 outbox
@@ -160,7 +160,7 @@ test('v6→最新迁移：删除扩展表/家庭表、剥离归属 meta、outbox
   const fresh = { todos: [], todoGroups: [] };
   await storage.initStorage(fresh);
 
-  // TODO 数据保留，meta 剥离归属字段、保留扩展字段与同步字段
+  // 任务数据保留，meta 剥离归属字段、保留扩展字段与同步字段
   const todo = fresh.todos.find(t => t.id === 't1');
   assert.equal(todo.title, '保留的待办');
   assert.equal(todo.meta.rev, 3);
@@ -176,7 +176,7 @@ test('v6→最新迁移：删除扩展表/家庭表、剥离归属 meta、outbox
   for (const gone of ['sys_households', 'sys_memberships', 'sys_ext_mounts', 'sys_ext_kv', 'ext_projects', 'ext_notes_nodes']) {
     assert.equal(tables.includes(gone), false, `${gone} 已被删除`);
   }
-  assert.ok(tables.includes('ext_todo_items') && tables.includes('ext_todo_groups'), 'TODO 表保留');
+  assert.ok(tables.includes('ext_todo_items') && tables.includes('ext_todo_groups'), '任务表保留');
 
   // 版本表单行、版本为 8（v6 库会连续跑 v7 裁剪 + v8 补齐）
   const ver = copy.exec('SELECT COUNT(*) AS n, MAX(version) AS v FROM sys_schema_version')[0].values[0];

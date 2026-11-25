@@ -17,7 +17,7 @@ WorkHub 是零构建、本地优先（local-first）的前端工作台。数据�
 v7 起，数据库设计**只覆盖系统基座**：
 
 - 系统表（`sys_`）：版本、用户、设备、设置、扩展注册、变更队列
-- 先行保留的 TODO 扩展表（`ext_todo_items` / `ext_todo_groups`）
+- 先行保留的 任务扩展表（`ext_todo_items` / `ext_todo_groups`）
 - 存储分层、meta、迁移机制、DAO 契约、同步现状
 
 **不在基座范围内**（v7 已从内核删除）：
@@ -37,7 +37,7 @@ v7 起，数据库设计**只覆盖系统基座**：
 | v5 | 2026-11-23 | 家庭/成员表与归属 meta（**v7 撤销**） |
 | v6 | 2026-11-23 | 同步字段「独立列为真相源、meta 精简」 |
 | v7 | 2026-11-24 | **裁剪到系统基座**：删扩展表/家庭表/未用机制表；版本表改单行约束；outbox 去 `pushed`；剥离 meta 归属字段 |
-| v8 | 2026-11-24 | **TODO 表补齐**：待办加 `completed_at`；分组升为完整同步表（补 `updated_by/deleted_at/rev`）；`created_at` 稳定化、`sort` 提升为记录字段 |
+| v8 | 2026-11-24 | **任务表补齐**：待办加 `completed_at`；分组升为完整同步表（补 `updated_by/deleted_at/rev`）；`created_at` 稳定化、`sort` 提升为记录字段 |
 
 ---
 
@@ -262,7 +262,7 @@ erDiagram
 
 ### 6.7 `ext_todo_items` / `ext_todo_groups`
 
-TODO 扩展自有表，用户要求先行保留。v8 已完成对称性修复：
+任务扩展自有表，用户要求先行保留。v8 已完成对称性修复：
 
 | 修复项 | 之前（v7） | 现在（v8） |
 |---|---|---|
@@ -279,7 +279,7 @@ TODO 扩展自有表，用户要求先行保留。v8 已完成对称性修复：
 
 **同步字段（v6 起独立列为真相源）**：`updated_at` / `updated_by` / `deleted_at` / `rev`。
 
-- v8 起两张 TODO 表都是完整四列表，四列均落地；`PK_ONLY_UPDATED` 仅作为 `slimMeta/fromMeta` 的默认参数保留（无表使用）。
+- v8 起两张 任务表都是完整四列表，四列均落地；`PK_ONLY_UPDATED` 仅作为 `slimMeta/fromMeta` 的默认参数保留（无表使用）。
 - `meta` 只存未提升的扩展字段；`slimMeta()` 落库前剔除同步字段与**归属字段**，`fromMeta()` 读回时以独立列覆盖。
 
 **已撤销的归属字段**（v7）：`userId` / `ownerId` / `scope` / `householdId` 不再写入；迁移时从历史记录中剥离，`slimMeta`/`fromMeta` 亦防御性剔除，避免备份或远端带回。
@@ -309,7 +309,7 @@ insert/update/remove(data.js)
 | 列 | `migrateColumns` | `PRAGMA table_info` 判缺列后 `ALTER TABLE`，按 id 从镜像回填 |
 | meta | `migrateSlimMeta` | v5→v6 清理 meta 中重复的同步字段 |
 | 基座裁剪 | `migrateV7` | 删表、重建 outbox、剥离归属 meta、版本表升级 |
-| TODO 补齐 | `migrateV8` | 加 `completed_at` 与分组三同步列、从 meta 回填、`created_at` 稳定化、版本升 8 |
+| 任务补齐 | `migrateV8` | 加 `completed_at` 与分组三同步列、从 meta 回填、`created_at` 稳定化、版本升 8 |
 
 **顺序（勿调换）**：
 

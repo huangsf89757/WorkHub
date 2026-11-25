@@ -763,14 +763,17 @@ function renderCenter() {
     box.append(el('button', { class: 'stage-back', onclick: () => router.back() },
       el('span', { class: 'icon', html: icons.back }), `返回${skin.name}`));
   }
-  // 统一工具条：所有扩展视图（home/detail）都可打开浏览器独立窗口
-  box.append(el('div', { class: 'ext-view-tools' },
-    el('button', {
-      class: 'ext-window-btn',
-      title: '在独立浏览器窗口打开该扩展',
-      'aria-label': `在独立窗口打开「${ext.name}」`,
-      onclick: () => openExtensionWindow(ext.id),
-    }, el('span', { class: 'icon', html: icons.external }), '独立窗口打开')));
+  // 统一工具条：所有扩展视图（home/detail）都可打开浏览器独立窗口。
+  // 优先并入 view 的 page-header actions（与标题同一行）；无 page-header 时退化为独立工具条。
+  const windowBtn = el('button', {
+    class: 'ext-window-btn',
+    title: '在独立浏览器窗口打开该扩展',
+    'aria-label': `在独立窗口打开「${ext.name}」`,
+    onclick: () => openExtensionWindow(ext.id),
+  }, el('span', { class: 'icon', html: icons.external }), '独立窗口打开');
+  const headerActions = view.querySelector?.('.page-header .header-actions');
+  if (headerActions) headerActions.append(windowBtn);
+  else box.append(el('div', { class: 'ext-view-tools' }, windowBtn));
   box.append(view);
   box.scrollTop = 0;
 }

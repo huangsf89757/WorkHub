@@ -5,15 +5,15 @@
 
 ## 1. 背景与现状
 
-- 五区布局中 `left`/`top` 已是纯入口（`renderLeft`/`renderTop` 生成 launcher），`right` 承载 TODO 的 `panel()` 统计，`bottom` 承载 `status()` 计数与 `setDefaultStatus()`。
+- 五区布局中 `left`/`top` 已是纯入口（`renderLeft`/`renderTop` 生成 launcher），`right` 承载 任务的 `panel()` 统计，`bottom` 承载 `status()` 计数与 `setDefaultStatus()`。
 - center 同时承担扩展主页/单条详情（业务视图）与系统页（扩展中心、设置、扩展详情）。
 - `router` 为纯内存态（`extId`/`mode`/`id`），无 URL 映射；全仓无 `window.open`，仅有应用内 `openModal`。
-- 因此 TODO 把统计放 right 属于"扩展详情内容入侵侧边栏"，需纠正；独立窗口能力需新建。
+- 因此 任务把统计放 right 属于"扩展详情内容入侵侧边栏"，需纠正；独立窗口能力需新建。
 
 ## 2. 总体方案（已确认：方案 A）
 
 URL(hash) 路由 + 统计聚合进 center + 四边侧栏只放入口 + 扩展详情标题栏独立窗口按钮。
-现有 `router.go/open/home/back` 调用点保持兼容，改动集中在内核与 TODO 扩展。
+现有 `router.go/open/home/back` 调用点保持兼容，改动集中在内核与 任务扩展。
 
 ## 3. URL 路由层（`js/core.js`）
 
@@ -29,8 +29,8 @@ URL(hash) 路由 + 统计聚合进 center + 四边侧栏只放入口 + 扩展详
 ## 4. 五区职责收敛与统计聚合
 
 - `ZONES` 中 `right`/`bottom` 的 `role` 由 `panel` 改为 `entry`（入口）；`js/skin-classic.js` 的挂载点描述同步。
-- `renderRight()/renderBottom()` 不再调用 `ext.panel()/ext.status()`，改为渲染挂载到该区的扩展**入口按钮**（点击 `router.go(extId)` 进 center），来源仍是 `mounts` + `skinMounts`。TODO 只挂 `left`，故 right 默认隐藏；bottom 只保留系统级状态（平台标签 + 快捷键），`setDefaultStatus` 里的 TODO 计数移走。
-- TODO 删除 `panel()/status()`，把"待完成/已完成/已逾期/完成率 + 分组分布"做成 center 主页顶部统计卡片；"N 待办未完成 · M 逾期"作为卡片摘要；移除原"N 待完成"右栏开关按钮。
+- `renderRight()/renderBottom()` 不再调用 `ext.panel()/ext.status()`，改为渲染挂载到该区的扩展**入口按钮**（点击 `router.go(extId)` 进 center），来源仍是 `mounts` + `skinMounts`。任务只挂 `left`，故 right 默认隐藏；bottom 只保留系统级状态（平台标签 + 快捷键），`setDefaultStatus` 里的 任务计数移走。
+- 任务删除 `panel()/status()`，把"待完成/已完成/已逾期/完成率 + 分组分布"做成 center 主页顶部统计卡片；"N 待办未完成 · M 逾期"作为卡片摘要；移除原"N 待完成"右栏开关按钮。
 - `docs/architecture.md` 契约表、`js/page-ext-detail.js` 钩子表、`docs/extensions/todo.md` 同步更新。
 
 结果：center 是唯一的扩展详情承载区，四边只留入口。

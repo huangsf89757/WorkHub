@@ -6,7 +6,7 @@ installLocalStorage(); installFakeBrowser();
 const { extEnabled, setExtEnabled, registry } = await import('../js/core.js');
 
 test('全新状态下业务扩展默认关闭（extEnabled 默认 false）', () => {
-  registry.add({ id: 'todo', name: 'TODO', group: 'main', order: 1 });
+  registry.add({ id: 'todo', name: '任务', group: 'main', order: 1 });
   assert.equal(extEnabled('todo'), false, '未显式启用时默认关闭');
   setExtEnabled('todo', true);
   assert.equal(extEnabled('todo'), true, '显式启用后生效');
@@ -20,7 +20,7 @@ test('系统扩展/页面不受默认关闭影响，始终可用', () => {
   assert.equal(extEnabled('nonexistent'), true, '未注册的 id 保持原行为（不误伤）');
 });
 
-test('TODO 扩展加载后不自动注入示例数据（全新状态为空）', async () => {
+test('任务扩展加载后不自动注入示例数据（全新状态为空）', async () => {
   const data = await import('../js/data.js');
   await import('../js/ext-todo.js');
   assert.equal(data.state.todos.length, 0, '不应有种子待办');

@@ -3,7 +3,7 @@
  * 实现 storage.js 适配器契约；schema 与 docs/database-design.md 同步（系统基座 v8）。
  * 领域整体重写（全表 DELETE + INSERT），个人规模足够；同步列已预埋。
  *
- * 范围（v7 起）：只维护系统基座表（sys_）+ 先行保留的 TODO 扩展表。
+ * 范围（v7 起）：只维护系统基座表（sys_）+ 先行保留的 任务扩展表。
  * 其余业务扩展表、家庭/组织模型表已从基座移除，扩展将来用 declareDomain(table) 自带表接入。
  *
  * 正确性要点（勿回归）：
@@ -27,7 +27,7 @@ let resetConsumed = false; // 本次会话是否已执行过重置清库（防�
    表名规范（v4 起）：
      sys_  —— 系统基座表（用户/设备/设置/扩展机制/变更日志/版本）
      ext_<扩展id>_ —— 扩展功能表，按扩展归属命名空间（由扩展自带，不纳入基座）
-   当前基座只登记系统表与先行保留的 TODO 表；其余扩展表由扩展在需要时自行声明。
+   当前基座只登记系统表与先行保留的 任务表；其余扩展表由扩展在需要时自行声明。
    ============================================================ */
 const TABLES = Object.freeze({
   // 系统基座
@@ -37,7 +37,7 @@ const TABLES = Object.freeze({
   settings: 'sys_settings',
   extensions: 'sys_extensions',
   outbox: 'sys_outbox',
-  // TODO 扩展自有表（用户要求先行保留，不随其余扩展表删除）
+  // 任务扩展自有表（用户要求先行保留，不随其余扩展表删除）
   todos: 'ext_todo_items',
   todoGroups: 'ext_todo_groups',
 });
@@ -89,7 +89,7 @@ const loadIdb = async () => {
 };
 
 /* ============================================================
-   Schema（系统基座 v7 + 先行保留的 TODO 表 v8 结构）
+   Schema（系统基座 v7 + 先行保留的 任务表 v8 结构）
    ============================================================ */
 const SCHEMA_VERSION = 8;
 const SCHEMA = `
@@ -117,7 +117,7 @@ CREATE TABLE IF NOT EXISTS ${TABLES.extensions} (
 CREATE TABLE IF NOT EXISTS ${TABLES.outbox} (
   seq INTEGER PRIMARY KEY AUTOINCREMENT, domain TEXT NOT NULL, op TEXT NOT NULL,
   record TEXT NOT NULL, at INTEGER NOT NULL);
-/* ---------- TODO 扩展表（先行保留；v8 补齐同步列与完成时间） ---------- */
+/* ---------- 任务扩展表（先行保留；v8 补齐同步列与完成时间） ---------- */
 CREATE TABLE IF NOT EXISTS ${TABLES.todos} (
   id TEXT PRIMARY KEY, title TEXT NOT NULL, done INTEGER NOT NULL DEFAULT 0,
   priority TEXT DEFAULT 'medium', start INTEGER, due INTEGER, note TEXT DEFAULT '',
@@ -213,7 +213,7 @@ function migrateV7() {
 }
 
 /* ============================================================
-   v8 迁移：TODO 表补齐同步列与完成时间（分组表升级为完整同步表）
+   v8 迁移：任务表补齐同步列与完成时间（分组表升级为完整同步表）
      · todos 加 completed_at；已完成的用 updated_at 近似回填（无历史完成时间可考）
      · todoGroups 加 updated_by/deleted_at/rev，从 meta 回填后剔除精简
      · 分组 created_at 稳定化：用组内最早待办的创建时间，之后不再被每次写入覆盖
@@ -609,7 +609,7 @@ export async function initDb(state) {
 
   // 分版本迁移，均须早于 SCHEMA 判定（SCHEMA 内会写版本）。
   //  v7：裁剪到系统基座（删扩展/家庭表、重建 outbox、剥离归属 meta、版本表重建）——仅 prevVer<7
-  //  v8：TODO 表补齐同步列与完成时间——prevVer<8（含 v7→v8；v6→v8 时两个都跑）
+  //  v8：任务表补齐同步列与完成时间——prevVer<8（含 v7→v8；v6→v8 时两个都跑）
   const needV7 = !!saved && prevVer < 7;
   const needV8 = !!saved && prevVer < 8;
   if (needV7) migrateV7();

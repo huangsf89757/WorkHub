@@ -238,5 +238,5 @@
 | 删除 `sys_households` / `sys_memberships` 与 meta 归属字段 | 组织结构未定，家庭模型过度预设；待通用组织结构设计（ADR-005 撤销） |
 | `sys_schema_version` 改单行约束；`sys_outbox` 去 `pushed` | 修复版本行累积缺陷；删除恒为 0 的死列 |
 
-**保留**：`ext_todo_items` / `ext_todo_groups`（TODO 扩展在用）。详见 [database-design.md](database-design.md)。
+**保留**：`ext_todo_items` / `ext_todo_groups`（任务扩展在用）。详见 [database-design.md](database-design.md)。
 

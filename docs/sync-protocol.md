@@ -157,6 +157,6 @@ syncNow():
 | `lww-field` | 设计，未实现 | 字段级时间戳 | record |
 | `crdt` | 设计，未实现 | Yjs `applyUpdate` | op |
 
-设计目标：将来 `declareSync` 落地后，用户从 TODO（lww-record）切到白板（crdt）时，同步引擎按当前写入域自动走对应策略。当前所有域统一走记录级 LWW。
+设计目标：将来 `declareSync` 落地后，用户从 任务（lww-record）切到白板（crdt）时，同步引擎按当前写入域自动走对应策略。当前所有域统一走记录级 LWW。
 
 **关键约束**：CRDT 传增量操作，云端不能用 LWW 判定（会丢并发操作）。设计上 CRDT 更新同样装入通用 `sync_records`，用 `op='crdt-op'` + 每次 update 独立 `record_id`，云端只存不判、合并全在客户端——云端表结构不变。注意当前 `sync_records.op` 的 CHECK 仅允许 `upsert`/`delete`，落地 `crdt-op` 时需放宽该约束。CRDT 库（Yjs）到真正需要时再引入（vendor ESM 或 CDN），现在不引入以守住零构建约束。

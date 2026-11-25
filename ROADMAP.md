@@ -9,7 +9,7 @@
 | 层 | 已完成 | 未完成 |
 |---|---|---|
 | 内核 core.js | 五区渲染、registry/router/bus/store、el、4 主题、**界面样式注册表 + stage 舞台** | URL 路由（刷新定位） |
-| 数据层（schema v8） | 通用 DAO、`meta` 同步元数据、outbox 落库、LWW 合并、storage 适配器；内核只保留系统基座 6 表 + TODO 2 表，TODO 表 v8 补齐同步列与 `completed_at` | 行级 upsert（当前整域重写） |
+| 数据层（schema v8） | 通用 DAO、`meta` 同步元数据、outbox 落库、LWW 合并、storage 适配器；内核只保留系统基座 6 表 + 任务2 表，任务表 v8 补齐同步列与 `completed_at` | 行级 upsert（当前整域重写） |
 | 平台层 | Web/PWA/Electron/Tauri/Capacitor 探测、deviceId、网络状态 | Tauri/Capacitor 真机桥接 |
 | 同步层 | push/pull 管线、HLC/LWW 合并、墓碑清理、Supabase CloudAdapter（REST/Auth/RPC）已实现并由 `cloud-sync.js` 自动注入；mock 单测覆盖请求格式 | 真实双端设备同步验收（历史人工记录，非仓库自动化测试） |
 | 界面样式 | classic（分栏）、studio3d（3D 工作室，6 实物挂载点） | kanban / terminal / focus |
@@ -21,7 +21,7 @@
 ## 2. 排期原则
 
 1. **垂直切片优先**：每个 Sprint 交付"用户可见可用的功能"，不堆砌无 UI 的基础设施
-2. **样板驱动**：Sprint 1 的 TODO 扩展是后续所有扩展的参考实现（钩子/DAO/测试/文档）
+2. **样板驱动**：Sprint 1 的 任务扩展是后续所有扩展的参考实现（钩子/DAO/测试/文档）
 3. **依赖顺序**：数据域 → 业务扩展 → 依赖数据的聚合视图 → 界面样式 → 端壳 → 云端同步
 4. **可回退**：每 Sprint 结束状态可独立运行、可验收；不引入阻断主干的中间态
 5. **外部条件单列**：需要后端/证书/原生工具链的项标注 ⏸，不阻塞主线
@@ -31,26 +31,26 @@
 ### Sprint 0 · 架构基线 ✅（已完成）
 - 五区布局 + 双扩展维度 + 数据/同步/平台骨架 + 2 个界面样式 + 文档
 
-### Sprint 1 · P0 TODO 扩展（首个真实扩展，打通全链路）✅
+### Sprint 1 · P0 任务扩展（首个真实扩展，打通全链路）✅
 **目标**：证明"扩展契约 + 通用 DAO + 同步元数据 + 五区 + 界面样式挂载"端到端可用。
 
-| 任务 | 产出 | 依赖 |
+| 任务| 产出 | 依赖 |
 |---|---|---|
-| `ext-todo.js`：home/detail/panel/status/badge 五钩子 | 可用 TODO 模块 | 数据层 DAO |
+| `ext-todo.js`：home/detail/panel/status/badge 五钩子 | 可用 任务模块 | 数据层 DAO |
 | 分组 / 优先级 / 截止日 / 标签 / 软删除 | 完整 CRUD | — |
 | 写入自动带 `meta` 并入 outbox | 同步就绪的写路径 | sync 骨架 |
-| 注册进 main.js；FEATURES 状态更新 | 扩展中心可见 TODO | — |
-| 3D 工作室"电脑"挂载点指向真实 TODO | 界面样式挂载闭环 | studio3d |
+| 注册进 main.js；FEATURES 状态更新 | 扩展中心可见 任务| — |
+| 3D 工作室"电脑"挂载点指向真实 任务| 界面样式挂载闭环 | studio3d |
 | 修复 `persistDomain` 单表领域列错位（P0） | SQLite 写入不再错位 | — |
 | 修复 todoGroups 软删墓碑未持久化（P1） | 分组软删刷新后不复活 | — |
 
-**验收（CDP 实测通过）**：五区 CRUD 正常；写入带完整 `meta` 且内存 outbox +1；刷新后 SQLite 数据正确恢复（标题/分组/软删墓碑全对）；3D 点电脑进入真实 TODO 页；无运行时错误。
+**验收（CDP 实测通过）**：五区 CRUD 正常；写入带完整 `meta` 且内存 outbox +1；刷新后 SQLite 数据正确恢复（标题/分组/软删墓碑全对）；3D 点电脑进入真实 任务页；无运行时错误。
 **遗留（已解决）**：outbox 早期仅在内存；ADR-006 已改为 `sys_outbox` 落库与刷新恢复，CloudAdapter 接入时无需再补。
 
 ### Sprint 2 · P1 核心三件套（W2–W3）⬜
 **目标**：覆盖"项目—笔记—概览"主工作流，dashboard 依赖前两者数据。
 
-| 任务 | 产出 | 依赖 |
+| 任务| 产出 | 依赖 |
 |---|---|---|
 | `ext-projects.js`：项目/子任务/里程碑 | 项目模块 | Sprint 1 DAO 范式 |
 | `ext-notes.js`：多级目录 + 右栏属性 + 变更历史 | 知识库模块 | panel 钩子 |
@@ -97,7 +97,7 @@
 ```
 Sprint 0 架构基线
    │
-   ├──► Sprint 1 TODO 样板 ──┬──► Sprint 2 核心三件套 ──► Sprint 3 内容扩展
+   ├──► Sprint 1 任务样板 ──┬──► Sprint 2 核心三件套 ──► Sprint 3 内容扩展
    │                        └──► Sprint 4 工具扩展（可并行）
    │
    ├──► Sprint 5 PWA 离线 ──────► (端壳前置)
@@ -126,7 +126,7 @@ Sprint 0 架构基线
 
 - Sprint 0 ✅ 完成
 - Sprint 1 ✅ 完成（CDP 端到端验证通过；含 2 个持久化 bug 修复）
-- **v7 基座裁剪 + v8 TODO 补齐（2026-11-24，当前 schema v8）**：删除 9 张空壳扩展表、家庭/成员表、未接入的 `ext_mounts`/`ext_kv`；版本表改单行；outbox 去 `pushed`；归属字段从 meta 移除（ADR-007）；TODO 表补 `completed_at`、分组升为完整同步表
+- **v7 基座裁剪 + v8 任务补齐（2026-11-24，当前 schema v8）**：删除 9 张空壳扩展表、家庭/成员表、未接入的 `ext_mounts`/`ext_kv`；版本表改单行；outbox 去 `pushed`；归属字段从 meta 移除（ADR-007）；任务表补 `completed_at`、分组升为完整同步表
 - **Sprint 8 云端同步落地（2026-11-24）**：Supabase 项目 + 迁移 + RLS 隔离验证 + 设置页配置预填 + CloudAdapter 自动注入；仓库内 mock 单测通过，8 项端到端冒烟 + 6 项双端同步为历史人工验证记录；修复 `sync_pull` CTE 缺陷。Sprint 8 完成
 - Sprint 2–7、9 ⬜ 待开始（其中 6/7 需原生工具链外部条件）
 

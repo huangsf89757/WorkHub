@@ -9,7 +9,7 @@ import { state } from './data.js';
 import { initStorage, flush } from './storage.js';
 import './identity.js';           // 本地用户身份（单机默认 me，无家庭/组织）
 import './db.js';                 // 副作用：向 storage 注册 LocalAdapter
-import './ext-todo.js';           // 副作用：注册 TODO 扩展（首个真实业务扩展）
+import './ext-todo.js';           // 副作用：注册 任务扩展（首个真实业务扩展）
 import './skin-classic.js';       // 副作用：注册经典分栏皮肤（默认）
 import './skin-studio3d.js';      // 副作用：注册 3D 工作室皮肤
 import './page-skin-detail.js';   // 副作用：注册界面样式详情系统页

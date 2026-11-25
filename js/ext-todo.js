@@ -1,4 +1,4 @@
-/* ext-todo.js — TODO 扩展（首个真实业务扩展，后续扩展的样板）
+/* ext-todo.js — 任务扩展（首个真实业务扩展，后续扩展的样板）
  *
  * 展示标准扩展契约的完整用法：五钩子 + 通用 DAO + 领域声明 + 同步元数据（自动）。
  * UI 借鉴飞书任务：精简工具栏（新建 / 排序 / 分组）+ 分组折叠计数 + 每组新建入口，
@@ -13,7 +13,7 @@ import {
 
 /* README：应用内「扩展详情 › README」展示的精简版；完整文档见 docs/extensions/todo.md */
 const TODO_README = [
-  '# TODO 扩展',
+  '# 任务扩展',
   '',
   '> 状态：✅ 已实现 · 首个真实业务扩展，后续扩展的参考样板',
   '',
@@ -31,7 +31,7 @@ const TODO_README = [
   '| `home(ctx)` | center | 主列表：视图切换、工具栏、分组任务 |',
   '| `detail(id,ctx)` | center | 单条待办编辑：标题/日期/分组/优先级/标签胶囊/备注/完成态 |',
   '',
-  '统计（待完成/已完成/已逾期/完成率 + 分组分布）直接展示在 center 主页顶部；四边侧栏只挂扩展入口。',
+  '待办数在标题栏角标显示；主视图为「新建/排序/分组」工具栏 + 分组任务列表 + 列标题。',
   '',
   '注册元数据：`id=todo`、`order=1.9`、`group=main`、`mounts=[left]`。',
   '',
@@ -67,7 +67,7 @@ const TODO_README = [
   '',
   '- 工具栏「新建」下拉：新建任务 / 新建分组；右侧「排序」「分组」下拉切换维度',
   '- 每行：圆形复选框切换完成、标题进详情、优先级色点、标签、截止日、删除',
-  '- 每组下方「新建任务」：回车直接创建到该组',
+  '- 新建任务统一走工具栏「新建」下拉，可在弹窗中选择分组',
   '- 自定义分组「⋯」：重命名 / 删除；备注 500ms 防抖 + blur 提交',
   '',
   '## 5. 界面样式适配',
@@ -125,7 +125,7 @@ const fullShort = ts => {
 /** 窄屏只保留截止列，避免列溢出 */
 const visibleCols = () => COLS.filter(c => window.innerWidth >= 760 || c.id === 'due');
 const gridStyle = () =>
-  `grid-template-columns: 18px 22px 10px minmax(0,1fr) ${visibleCols().map(() => '88px').join(' ')} 24px`;
+  `grid-template-columns: 22px 10px minmax(0,1fr) ${visibleCols().map(() => '88px').join(' ')} 24px`;
 
 /* ============================================================
    通用浮层菜单（锚在按钮下方，自动夹紧到视口）
@@ -329,9 +329,13 @@ function tagEditor(initial = [], onChange) {
  * 任务表单字段：新建与详情共用同一套命名、顺序与栅格，保证两个界面一致。
  * 顺序：标题 → 开始时间 / 截止日期 → 分组 / 优先级 → 标签 → 备注
  */
+/** 必填字段标签：标题后带红色星号 */
+const requiredLabel = text =>
+  el('span', {}, text, el('span', { class: 'field-req', 'aria-label': '必填' }, ' *'));
+
 function todoFields({ title, start, due, priority, group, tags, note }) {
   return [
-    field('标题', title),
+    field(requiredLabel('标题'), title),
     el('div', { class: 'prop-grid' },
       field('开始时间', start), field('截止日期', due)),
     el('div', { class: 'prop-grid' },
@@ -443,8 +447,8 @@ function todoRow(todo) {
     html: '<svg viewBox="0 0 10 16" width="10" height="16" fill="currentColor"><circle cx="2" cy="3" r="1.2"/><circle cx="8" cy="3" r="1.2"/><circle cx="2" cy="8" r="1.2"/><circle cx="8" cy="8" r="1.2"/><circle cx="2" cy="13" r="1.2"/><circle cx="8" cy="13" r="1.2"/></svg>',
   });
 
-  return el('div', { class: 'todo-row' + (todo.done ? ' done' : ''), style: gridStyle(), 'data-todo-id': todo.id },
-    handle,
+  // 手柄在任务框外（左侧），但同一 draggable 单元内，SortableJS 以 .todo-row-wrap 为拖动项
+  const row = el('div', { class: 'todo-row' + (todo.done ? ' done' : ''), style: gridStyle() },
     checkbox,
     el('span', {
       class: `prio-dot ${todo.priority}`,
@@ -460,37 +464,13 @@ function todoRow(todo) {
       class: 'icon-btn todo-del', title: '删除', 'aria-label': `删除待办「${todo.title}」`,
       onclick: () => askDeleteTodo(todo),
     }, el('span', { class: 'icon', html: icons.trash })));
-}
 
-/** 每组下方的「新建任务」入口（点击展开输入，回车创建到该组） */
-function inlineNew(sec) {
-  const wrap = el('div', { class: 'todo-inline-new' });
-  wrap.append(el('button', {
-    class: 'todo-inline-btn',
-    onclick: () => {
-      wrap.innerHTML = '';
-      const fieldInput = input({ placeholder: '新建任务，回车创建…', class: 'todo-inline-input', maxlength: 120 });
-      wrap.append(fieldInput);
-      fieldInput.focus();
-      const commit = () => {
-        const value = fieldInput.value.trim();
-        if (value) addTodo(value, sec.groupId || '', sec.priority || 'medium');
-        bus.emit('route');
-      };
-      fieldInput.addEventListener('keydown', event => {
-        if (event.key === 'Enter') commit();
-        if (event.key === 'Escape') bus.emit('route');
-      });
-      fieldInput.addEventListener('blur', () => { if (!fieldInput.value.trim()) bus.emit('route'); });
-    },
-  }, el('span', { class: 'icon', html: icons.plus }), '新建任务'));
-  return wrap;
+  return el('div', { class: 'todo-row-wrap', 'data-todo-id': todo.id }, handle, row);
 }
 
 /** 列标题行：与任务行共用 grid 模板，严格对齐；仅自定义分组视图显示 */
 function headerRow() {
   return el('div', { class: 'todo-header-row', style: gridStyle(), 'aria-hidden': 'true' },
-    el('span'),                                   // 手柄列
     el('span'),                                   // 复选框列
     el('span'),                                   // 优先级列
     el('span', { class: 'todo-head-label' }, '标题'),
@@ -541,7 +521,6 @@ function initSortables(body) {
     handle: '.todo-group-head-row[data-group-handle]',
     animation: 150,
     ghostClass: 'sortable-ghost',
-    filter: '.todo-inline-new',
     onEnd: () => syncGroupOrderFromDOM(body),
   });
   sortableInstances.push(groupSort);
@@ -553,7 +532,7 @@ function initSortables(body) {
       handle: '.todo-drag-handle',
       animation: 150,
       ghostClass: 'sortable-ghost',
-      draggable: '.todo-row',
+      draggable: '.todo-row-wrap',
       onEnd: syncTodoGroupFromDOM,
     });
     sortableInstances.push(todoSort);
@@ -608,7 +587,6 @@ function sectionNode(sec) {
   const body = el('div', { class: 'todo-group-body', 'data-group-id': sec.groupId || '' });
   if (!isCollapsed) {
     sec.todos.forEach(todo => body.append(todoRow(todo)));
-    body.append(inlineNew(sec));
   }
 
   const groupNode = el('div', {
@@ -645,36 +623,12 @@ function toolbar() {
     }, el('span', { class: 'icon', html: icons.folder }), '分组：' + GROUP_LABEL[groupBy]));
 }
 
-/** 统计卡片：原 right.panel() 与 bottom.status() 的内容，现统一在 center 主页展示。 */
-function statsCard() {
-  const items = alive('todos');
-  const done = items.filter(t => t.done).length;
-  const pending = items.length - done;
-  const late = items.filter(isLate).length;
-  const groups = alive('todoGroups');
-  const rate = items.length ? Math.round(done / items.length * 100) : 0;
-  const row = (key, value) => el('div', { class: 'insp-row' },
-    el('span', { class: 'insp-key' }, key), el('span', { class: 'insp-val' }, String(value)));
-
-  return el('div', { class: 'todo-stats-card' },
-    el('div', { class: 'todo-stats-summary' },
-      `${pending} 待办未完成${late ? ` · ${late} 逾期` : ''}`),
-    el('div', { class: 'todo-stats-grid' },
-      el('div', { class: 'insp-section' },
-        el('div', { class: 'insp-label' }, '概览'),
-        row('待完成', pending), row('已完成', done), row('已逾期', late), row('完成率', rate + '%')),
-      el('div', { class: 'insp-section' },
-        el('div', { class: 'insp-label' }, '分组分布'),
-        ...groups.map(g => row(g.name, items.filter(t => t.groupId === g.id).length)),
-        row('默认', items.filter(t => !t.groupId).length))));
-}
-
 /* ============================================================
    扩展注册
    ============================================================ */
 registry.add({
   id: 'todo',
-  name: 'TODO',
+  name: '任务',
   icon: icons.todo,
   order: 1.9,
   group: 'main',
@@ -708,8 +662,7 @@ registry.add({
     initSortables(body); // SortableJS：分组排序 + 任务跨组拖动（仅自定义分组视图）
 
     return el('div', { class: 'page todo-page' },
-      pageHeader({ title: 'TODO' }),
-      statsCard(),
+      pageHeader({ title: '任务' }),
       toolbar(),
       tabs,
       groupBy === 'group' ? headerRow() : null,
@@ -720,7 +673,7 @@ registry.add({
     const todo = byId('todos', id);
     if (!todo) {
       return el('div', { class: 'page' },
-        pageHeader({ title: 'TODO', back: true }),
+        pageHeader({ title: '任务', back: true }),
         el('div', { class: 'empty' }, '待办不存在'));
     }
 
