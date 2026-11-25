@@ -94,8 +94,30 @@ export const store = {
   },
 };
 
+/**
+ * 一次性重置迁移（v1）：把存量工作台清空为初始空状态。
+ * 清除业务域镜像（待办/分组）与扩展启用态，写入标记保证只执行一次。
+ * 幂等：标记存在时直接返回 false。返回是否发生了重置。
+ */
+export const RESET_MARKER = PREFIX + 'sys_settings_reset_v1';
+// 本次会话是否真的执行了重置（供 db.js 决定是否同步清 SQLite；只清一次）
+export let resetAppliedThisSession = false;
+export function migrateResetToEmpty() {
+  try {
+    if (localStorage.getItem(RESET_MARKER) !== null) return false;
+    // 清除所有业务域的 localStorage 镜像（todos / todoGroups 及未来扩展域）
+    for (const logical of Object.keys(DOMAIN_TABLE)) localStorage.removeItem(storageKey(logical));
+    // 扩展启用态重置为空（默认全关，见 core.extEnabled）
+    localStorage.setItem(storageKey('extEnabled'), JSON.stringify({}));
+    localStorage.setItem(RESET_MARKER, '1');
+    resetAppliedThisSession = true;
+    return true;
+  } catch { return false; }
+}
+
 // 模块加载即迁移老 key —— 必须早于 data.js 的 state 初始化（它在 import 时就 store.get）
 try { migrateStorageKeys(); } catch { /* 存储不可用则跳过，静默降级 */ }
+try { migrateResetToEmpty(); } catch { /* 存储不可用则跳过，静默降级 */ }
 
 /* ---------- 业务扩展注册表（纯数据结构，db.js 需要读取扩展清单，故放在基础设施层） ---------- */
 export const registry = {

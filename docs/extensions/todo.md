@@ -56,7 +56,7 @@ declareDomain('todoGroups', [])
 - 未完成：`done === false`
 - 已完成：`done === true`
 
-首屏种子（仅当 `todos` 和 `todoGroups` 都为空时注入）：2 个分组（工作/生活）+ 3 条示例待办。种子写入绕过 `commit`，避免污染 outbox。
+初始状态为空：不注入任何示例分组或待办（2026-11-25 起）。用户可在扩展中心启用 TODO 后自行创建数据。存量工作台通过一次性重置迁移（localStorage 标记 `wh_sys_settings_reset_v1`）自动清空旧数据。
 
 **交互入口：**
 - 工具栏「新建」下拉：新建任务 / 新建分组；右侧「排序」「分组」下拉切换视图维度

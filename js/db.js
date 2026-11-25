@@ -13,7 +13,7 @@
  *   3. 迁移标记 v2_imported：老库缺此键时从 localStorage 镜像重导一次自愈。
  *   4. 版本读取与表名迁移都必须在 SCHEMA 之前（SCHEMA 会建表/写版本，顺序错则迁移跳过）。
  */
-import { bus, store, registry } from './base.js';
+import { bus, store, registry, resetAppliedThisSession } from './base.js';
 import { registerAdapter } from './storage.js';
 import { getDeviceId, detectPlatform } from './platform.js';
 import { DEFAULT_USER_ID, DEFAULT_USER_NAME } from './identity.js';
@@ -21,6 +21,7 @@ import { DEFAULT_USER_ID, DEFAULT_USER_NAME } from './identity.js';
 let db = null;
 let saveTimer = null;
 let prefSubscribed = false;
+let resetConsumed = false; // 本次会话是否已执行过重置清库（防止测试多次 initStorage 时重复清）
 
 /* ============================================================
    表名规范（v4 起）：
@@ -616,6 +617,19 @@ export async function initDb(state) {
   db.run(SCHEMA);
   // v8 加列必须在 SCHEMA 之后：SCHEMA 的 CREATE TABLE IF NOT EXISTS 不会改已存在的旧表结构
   if (needV8) migrateV8();
+
+  // 一次性重置到空工作台：base.js 的 migrateResetToEmpty 本次会话已清 localStorage 镜像，
+  // 这里同步清空 SQLite 业务表，避免启动时从 DB 回读把旧数据带回。只在本会话首次初始化时清一次。
+  try {
+    if (resetAppliedThisSession && !resetConsumed) {
+      for (const key of ['todos', 'todoGroups']) {
+        if (M[key]) db.run(`DELETE FROM ${M[key].tables[0]}`);
+      }
+      resetConsumed = true;
+      scheduleSave();
+    }
+  } catch { /* 清库失败不阻塞启动 */ }
+
   // 扩展自带表：扩展在 init 之前已声明，这里统一建表；新建的表用 state 镜像填充，而不是回读空表
   newTables.clear();
   for (const [key, mapping] of Object.entries(M)) {
@@ -664,7 +678,7 @@ export async function initDb(state) {
   for (const ext of registry.list) {
     if (ext.group === 'system') continue;
     registerBaseExtension(ext.id, ext.name, {
-      enabled: enabledMap[ext.id] !== false, sort: ext.order ?? 99, source: 'builtin',
+      enabled: enabledMap[ext.id] === true, sort: ext.order ?? 99, source: 'builtin',
     });
   }
   hydratePrefs(state);

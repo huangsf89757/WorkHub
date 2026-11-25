@@ -5,11 +5,11 @@
  * 保留分组卡片风格；新建下拉同时提供新建任务与新建分组。
  */
 import {
-  el, registry, icons, router, pageHeader, openModal, input, toast, bus, store, field,
+  el, registry, icons, router, pageHeader, openModal, input, toast, bus, field,
   rightPanelOpen, toggleRightPanel,
 } from './core.js';
 import {
-  state, declareDomain, insert, update, remove, alive, byId, newMeta, uid,
+  state, declareDomain, insert, update, remove, alive, byId,
 } from './data.js';
 
 /* README：应用内「扩展详情 › README」展示的精简版；完整文档见 docs/extensions/todo.md */
@@ -83,27 +83,10 @@ const TODO_README = [
 ].join('\n');
 
 /* ============================================================
-   领域声明 + 首次种子
+   领域声明（初始为空，不注入示例数据）
    ============================================================ */
 declareDomain('todos', []);
 declareDomain('todoGroups', []);
-
-function seedIfEmpty() {
-  if (state.todos.length || state.todoGroups.length) return;
-  const now = Date.now(), day = 86400000;
-  const work = { id: uid(), name: '工作', sort: 0, created: now - day * 3, meta: newMeta() };
-  const life = { id: uid(), name: '生活', sort: 1, created: now - day * 3, meta: newMeta() };
-  state.todoGroups.push(work, life);
-  state.todos.push(
-    { id: uid(), title: 'Review 新提交的 PR', done: false, priority: 'high', start: now - day, due: now + day, note: '重点看并发部分', tags: ['代码评审'], groupId: work.id, created: now - day * 2, completedAt: null, meta: newMeta() },
-    { id: uid(), title: '回复技术社区私信', done: false, priority: 'low', start: now - day, due: now - day, note: '', tags: ['社区'], groupId: life.id, created: now - day, completedAt: null, meta: newMeta() },
-    { id: uid(), title: '整理本周周报', done: true, priority: 'medium', start: null, due: null, note: '', tags: [], groupId: work.id, created: now - day * 3, completedAt: now - day * 2, meta: newMeta() },
-  );
-  // 种子不逐个 commit（避免污染 outbox），启动末尾统一持久化一次
-  store.set('todoGroups', state.todoGroups);
-  store.set('todos', state.todos);
-}
-seedIfEmpty();
 
 /* ============================================================
    视图状态（模块内，不持久化）

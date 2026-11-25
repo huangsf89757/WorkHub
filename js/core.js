@@ -238,11 +238,11 @@ export function registerSystemPage(id, render, meta = {}) {
 export const hasSystemPage = id => !!systemPages[id];
 export const getSystemMeta = id => systemMeta[id] || null;
 
-/* 扩展启用开关 */
+/* 扩展启用开关：默认关闭，需用户在扩展中心显式启用（初始为空工作台） */
 export function extEnabled(id) {
   const ext = registry.get(id);
   if (!ext || ext.group === 'system') return true;
-  return store.get('extEnabled', {})[id] !== false;
+  return store.get('extEnabled', {})[id] === true;
 }
 export function setExtEnabled(id, on) {
   const map = store.get('extEnabled', {});
