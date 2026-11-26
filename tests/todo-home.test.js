@@ -6,15 +6,17 @@ installLocalStorage();
 installFakeBrowser();
 
 /** 最小 DOM：只实现 el / extToolButton 构建按钮所需的能力，监听器类型严格校验。 */
-function makeNode() {
+function makeNode(tag = '') {
   return {
-    nodeType: 1, children: [], className: '', innerHTML: '', style: { cssText: '' }, listeners: {},
+    nodeType: 1, tagName: String(tag).toUpperCase(), children: [], className: '', innerHTML: '',
+    style: { cssText: '' }, listeners: {}, attrs: {},
     classList: { add() {}, remove() {}, toggle() {} },
     addEventListener(type, fn) {
       assert.equal(typeof fn, 'function', `${type} 监听器必须是函数，实际为 ${typeof fn}`);
       this.listeners[type] = fn;
     },
-    setAttribute() {},
+    setAttribute(key, value) { this.attrs[key] = String(value); },
+    getAttribute(key) { return key in this.attrs ? this.attrs[key] : null; },
     append(...items) {
       for (const item of items.flat(Infinity)) {
         if (item == null) continue;
@@ -62,6 +64,7 @@ window.innerHeight = 800;
 
 const core = await import('../js/core.js');
 const todo = await import('../js/ext-todo.js');
+const { state } = await import('../js/data.js');
 
 test('新建任务标题为空时返回必填提示', () => {
   assert.equal(todo.validateNewTask?.({ title: '   ' }), '请填写标题');
@@ -139,4 +142,37 @@ test('任务首页头部收进 sticky 容器，列表作为后续兄弟节点', 
   }
   assert.ok(page.children.some(node => hasClass(node, 'todo-body')), '.todo-body 应为页面直接子节点');
   assert.ok(!head.children.some(node => hasClass(node, 'todo-body')), '.todo-body 不应被收进固定头部');
+});
+
+test('自定义分组标题行提供快捷新建入口，点击打开预选该组的任务弹窗', () => {
+  const prevGroups = state.todoGroups;
+  state.todoGroups = [{ id: 'g-quick', name: '微蒙', sort: 0, created: 1, meta: {} }];
+  const realSetTimeout = globalThis.setTimeout;
+  globalThis.setTimeout = () => 0;
+  try {
+    document.body.children = [];
+    const page = core.registry.get('todo').home();
+    let quickBtn = null;
+    walkNodes(page, node => {
+      if (!quickBtn && node.nodeType === 1 &&
+          String(node.className || '').split(/\s+/).includes('todo-group-quick-add')) quickBtn = node;
+    });
+    assert.ok(quickBtn, '真实自定义分组标题行应含 .todo-group-quick-add 快捷新建入口');
+    assert.equal(typeof quickBtn.listeners.click, 'function', '快捷入口应绑定点击回调');
+    assert.equal(quickBtn.getAttribute('aria-label'), '在分组「微蒙」中新建任务');
+
+    quickBtn.listeners.click();
+    const overlay = findByClass('overlay');
+    assert.ok(overlay, '点击快捷入口应打开新建任务弹窗');
+    let selectedOption = null;
+    walkNodes(overlay, node => {
+      if (node.nodeType === 1 && node.tagName === 'OPTION' && node.getAttribute('selected') === '') selectedOption = node;
+    });
+    assert.ok(selectedOption, '弹窗分组下拉应有一个预选选项');
+    assert.equal(selectedOption.getAttribute('value'), 'g-quick', '预选分组应为被点击的分组');
+  } finally {
+    globalThis.setTimeout = realSetTimeout;
+    state.todoGroups = prevGroups;
+    document.body.children = [];
+  }
 });

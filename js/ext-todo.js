@@ -68,7 +68,8 @@ const TODO_README = [
   '',
   '- 工具栏「新建」下拉：新建任务 / 新建分组；右侧「排序」「分组」下拉切换维度',
   '- 每行：圆形复选框切换完成、标题进详情、优先级色点、标签、截止日、删除',
-  '- 新建任务统一走工具栏「新建」下拉，可在弹窗中选择分组；弹窗默认选中上次创建时使用的分组（若为偏好记录且分组仍存在，否则回退第一个）',
+  '- 新建任务走工具栏「新建」下拉；自定义分组标题行另有快捷「+」，点击复用弹窗并预选该分组',
+  '- 弹窗分组默认值：快捷入口预选被点击分组；工具栏「新建」沿用上次使用分组（偏好记录存在则选中，已删除回退第一个）',
   '- 自定义分组「⋯」：重命名 / 删除；备注 500ms 防抖 + blur 提交',
   '',
   '## 5. 主题风格适配',
@@ -182,6 +183,14 @@ export function ensureGroupForNewTask(groups, selectedId) {
 /** 新建任务弹窗的默认分组 id：上次选择仍有效则复用，否则回退第一个分组。 */
 export function defaultGroupForNewTask(groups, lastGroupId) {
   return ensureGroupForNewTask(groups, lastGroupId) ?? '';
+}
+/**
+ * 快捷新建的默认分组：分组标题行的「+」按钮传入该组 id，需优先预选。
+ * 预选 id 已失效时回退到上次偏好，保持与工具栏「新建」一致的兜底行为。
+ */
+export function presetGroupForNewTask(groups, presetGroupId, lastGroupId) {
+  if (presetGroupId && groups.some(g => g.id === presetGroupId)) return presetGroupId;
+  return defaultGroupForNewTask(groups, lastGroupId);
 }
 
 /** 纯函数：返回属于指定分组的待办 id 列表（删除分组连带删除用） */
@@ -383,11 +392,14 @@ function todoFields({ title, start, due, priority, group, tags, note }) {
   ];
 }
 
-/** 新建任务弹窗：与待办详情使用相同的字段结构与顺序 */
-export function askNewTask() {
+/**
+ * 新建任务弹窗：与待办详情使用相同的字段结构与顺序。
+ * 传入 presetGroupId（分组标题行快捷入口）时优先预选该组，否则沿用上次偏好。
+ */
+export function askNewTask(presetGroupId = '') {
   const title = input({ placeholder: '输入任务标题…', maxlength: 120 });
   const groups = alive('todoGroups').slice().sort((a, b) => (a.sort ?? 0) - (b.sort ?? 0));
-  const defaultGroupId = defaultGroupForNewTask(groups, store.get('todoLastGroupId', ''));
+  const defaultGroupId = presetGroupForNewTask(groups, presetGroupId, store.get('todoLastGroupId', ''));
   const group = el('select', { class: 'input select' },
     ...groups.map(g => el('option', { value: g.id, selected: g.id === defaultGroupId }, g.name)));
   group.disabled = groups.length === 0; // 无分组时由 addTodo 自动建"默认"组
@@ -616,6 +628,16 @@ function sectionNode(sec) {
     }));
   }
   headRow.append(head);
+
+  // 快捷新建：仅真实自定义分组有归属 id，可预选该组；位于 ⋯ 菜单左侧
+  const quickAdd = isReal
+    ? el('button', {
+        class: 'todo-group-quick-add', title: '在此分组新建任务',
+        'aria-label': `在分组「${sec.name}」中新建任务`,
+        onclick: () => askNewTask(sec.groupId),
+      }, el('span', { class: 'icon', html: icons.plus }))
+    : null;
+  if (quickAdd) headRow.append(quickAdd);
 
   // 仅真实自定义分组有管理菜单；默认/优先级/截止日等虚拟分组没有 groupId
   const more = isReal

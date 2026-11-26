@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { installLocalStorage, installFakeBrowser } from './helpers.js';
 installLocalStorage(); installFakeBrowser();
 
-const { ensureGroupForNewTask, defaultGroupForNewTask, todoIdsInGroup, sortOrdersFromDomIds } = await import('../js/ext-todo.js');
+const { ensureGroupForNewTask, defaultGroupForNewTask, presetGroupForNewTask, todoIdsInGroup, sortOrdersFromDomIds } = await import('../js/ext-todo.js');
 const { storageKey } = await import('../js/base.js');
 
 test('ensureGroupForNewTask：无分组时返回 null（触发自动建默认组）', () => {
@@ -36,6 +36,26 @@ test('defaultGroupForNewTask：上次分组已删除时回退第一个分组', (
 test('defaultGroupForNewTask：无分组时返回空串（由 addTodo 自动建默认组）', () => {
   assert.equal(defaultGroupForNewTask([], ''), '');
   assert.equal(defaultGroupForNewTask([], 'g1'), '');
+});
+
+test('presetGroupForNewTask：快捷入口预选分组优先于上次偏好', () => {
+  const groups = [{ id: 'g1' }, { id: 'g2' }];
+  assert.equal(presetGroupForNewTask(groups, 'g2', 'g1'), 'g2', '预选 g2 覆盖上次使用的 g1');
+});
+
+test('presetGroupForNewTask：预选分组已删除时回退到上次偏好', () => {
+  const groups = [{ id: 'g1' }, { id: 'g2' }];
+  assert.equal(presetGroupForNewTask(groups, 'deleted', 'g2'), 'g2');
+});
+
+test('presetGroupForNewTask：无预选时行为等同 defaultGroupForNewTask', () => {
+  const groups = [{ id: 'g1' }, { id: 'g2' }];
+  assert.equal(presetGroupForNewTask(groups, '', 'g2'), 'g2');
+  assert.equal(presetGroupForNewTask(groups, '', 'deleted'), 'g1');
+});
+
+test('presetGroupForNewTask：无分组时返回空串', () => {
+  assert.equal(presetGroupForNewTask([], 'g1', 'g2'), '');
 });
 
 test('todoLastGroupId：作为系统偏好键持久化（刷新后仍保留）', () => {

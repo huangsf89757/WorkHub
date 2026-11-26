@@ -524,7 +524,7 @@ h1, h2, h3, .page-title { text-wrap: balance; }
   .nav-item, .btn, .user-pop-row { padding-top: 9px; padding-bottom: 9px; }
   .input { padding: 9px 12px; font-size: 15px; }
   /* 触摸目标：窄屏下所有纯图标按钮扩到 ≥40px（含安全间距约 44px） */
-  .icon-btn, .sd-more, .theme-style-card-act, .zone-close, .todo-group-more, .todo-del, .user-chip {
+  .icon-btn, .sd-more, .theme-style-card-act, .zone-close, .todo-group-more, .todo-group-quick-add, .todo-del, .user-chip {
     min-width: 40px; min-height: 40px;
   }
   .zone-close { top: 6px; right: 8px; font-size: 22px; }
@@ -780,6 +780,14 @@ body[data-page="system"] .top-page-actions { display: flex; }
   font-size: 15px; line-height: 1; color: var(--text-3);
 }
 .todo-group-more:hover { background: var(--bg-hover); color: var(--text); }
+/* 分组标题行快捷新建：与 ⋯ 同规格，图标对齐，hover 显示 */
+.todo-group-quick-add {
+  flex: none; width: 24px; height: 24px; border-radius: var(--r-sm);
+  display: inline-flex; align-items: center; justify-content: center;
+  color: var(--text-3);
+}
+.todo-group-quick-add .icon { width: 14px; height: 14px; }
+.todo-group-quick-add:hover { background: var(--bg-hover); color: var(--accent); }
 .todo-group-count {
   font-family: var(--mono); font-size: 10px; color: var(--text-3);
   background: var(--bg-inset); padding: 1px 6px; border-radius: 8px;
