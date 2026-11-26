@@ -400,7 +400,15 @@ function stagePointRow(themeStyle, point) {
   return frag;
 }
 
-/** 扩展行：删除挂载 + 启停开关。 */
+/** 挂载点文案：槽位型显示「区 · 段部」，stage 实物显示实物 ID。 */
+function mountPointLabelOf(item) {
+  const id = item.binding === 'slot' ? item.zone : item.point?.id;
+  if (!id) return '该挂载点';
+  const [zone, slot] = id.split(':');
+  const slotName = slotsOfZone(zone).find(s => s.id === slot)?.name;
+  return slotName ? `${ZONES[zone]?.label || zone} · ${slotName}部` : (ZONES[zone]?.label || id);
+}
+/** 扩展行：删除挂载 + 挂载点级启停（与扩展中心全局开关区分）。 */
 function itemRow(themeStyle, point, slot, item, depth) {
   const extRec = registry.get(item.extId) || getPlannedFeatures().find(f => f.id === item.extId);
   const { row } = treeRow({
@@ -410,14 +418,15 @@ function itemRow(themeStyle, point, slot, item, depth) {
   });
   if (item.extId === focusExtId) row.classList.add('sd-trow-focus');
   const enabled = dEnabled(themeStyle, item);
+  const pointLabel = mountPointLabelOf(item);
   rowActions([
     {
       icon: enabled ? icons.eye : icons.eyeOff,
-      title: enabled ? '停用扩展' : '启用扩展',
+      title: `${enabled ? '停用' : '启用'}此挂载点（${pointLabel}），不影响全局开关`,
       onClick: () => {
         const next = !enabled;
         dSetEnabled(themeStyle, item, next);
-        toast((next ? '已启用：' : '已停用：') + extName(item.extId) + '（待应用）');
+        toast((next ? '已启用挂载点：' : '已停用挂载点：') + extName(item.extId) + ' · ' + pointLabel + '（待应用）');
         rerender();
       },
     },

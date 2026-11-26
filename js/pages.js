@@ -9,6 +9,7 @@ import {
   getThemeStyleMountPoints, mountLabelOfExt,
   EXT_STAGES, extStageOf,
   isExtInstalled, installExt, uninstallExt, extNeedsUpdate, updateExt, isExtMounted,
+  extEnabled, setExtEnabled,
 } from './core.js';
 import { openExtDetail } from './page-ext-detail.js';
 import { openThemeStyleDetail } from './page-theme-style-detail.js';
@@ -61,6 +62,16 @@ registerSystemPage('ext-center', () => {
     ];
 
     if (installed) {
+      const globallyEnabled = extEnabled(ext.id);
+      cells.push(el('button', {
+        class: 'icon-btn ext-row-enable' + (globallyEnabled ? '' : ' off'),
+        title: `${globallyEnabled ? '全局停用' : '全局启用'}「${ext.name}」（影响所有挂载点）`,
+        'aria-label': `${globallyEnabled ? '全局停用' : '全局启用'}「${ext.name}」`,
+        onclick: () => {
+          setExtEnabled(ext.id, !globallyEnabled);
+          toast((globallyEnabled ? '已全局停用：' : '已全局启用：') + ext.name);
+        },
+      }, el('span', { class: 'icon', html: globallyEnabled ? icons.eye : icons.eyeOff })));
       cells.push(el('button', {
         class: 'icon-btn ext-row-mount',
         title: `${ext.name}${mounted ? `挂载于 ${mount.label}` : '未挂载'}，点击配置`,

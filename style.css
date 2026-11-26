@@ -1070,6 +1070,9 @@ body[data-page="system"] .top-page-actions { display: flex; }
 .ext-name-link:hover { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
 .ext-row-detail { flex: none; width: 26px; height: 26px; opacity: .72; }
 .ext-row-detail:hover { opacity: 1; }
+.ext-row-enable { flex: none; }
+.ext-row-enable.off { opacity: .45; }
+.ext-row-enable:hover { opacity: 1; }
 .ext-row-mount { flex: none; }
 .ext-group-head { display: flex; align-items: center; gap: 10px; padding: 12px 16px; }
 .ext-group-icon { width: 20px; height: 20px; flex: none; color: var(--accent); }
