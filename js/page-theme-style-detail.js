@@ -445,8 +445,11 @@ function askAddExtension(themeStyle, ctx) {
       if (!id) { toast('请选择扩展'); return; }
       const zone = ctx.zone || ctx.point.id;
       dSetMount(zone, id);
+      // 扩展全局开关默认关闭；挂载时一并启用，避免配置看似成功但主界面不显示
+      const wasEnabled = !!draft.extEnabled[id];
+      if (!wasEnabled) draft.extEnabled[id] = true;
       revealZone(themeStyle, ctx.point, zone);
-      toast('已添加：' + extName(id) + '（待应用）'); close(); rerender();
+      toast('已添加：' + extName(id) + (wasEnabled ? '（待应用）' : '并启用（待应用）')); close(); rerender();
     },
   }]);
 }
