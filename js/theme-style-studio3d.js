@@ -90,7 +90,7 @@ export function openStudioSettings() {
 
   openModal('3D 工作室 · 挂载设置', body, [
     { label: '取消' },
-    { label: '重置默认', onClick: () => {
+    { label: '重置默认', icon: icons.restore, onClick: () => {
       OBJECTS.forEach(obj => setThemeStyleMount(THEME_STYLE_ID, obj.id, null));
       toast('已恢复默认挂载');
     } },
@@ -157,7 +157,7 @@ function settingsPanel() {
 registerThemeStyle({
   id: THEME_STYLE_ID,
   name: '3D 工作室',
-  icon: icons.blog,
+  icon: icons.cube,
   desc: '把主界面变成一间 3D 工作室：桌子、电脑、宠物、小人都是扩展挂载点，点击即可打开对应功能。',
   layout: 'stage',
   mountPoints: OBJECTS.map(({ id, name, desc, icon, defaultExt }) => ({ id, name, desc, icon, defaultExt })),

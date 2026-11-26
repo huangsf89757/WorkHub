@@ -11,7 +11,7 @@ import {
   registerUnappliedGuard, guardUnappliedNavigation,
   themeColorNames, applyThemeColor, input,
   getAllThemeStyles, getActiveThemeStyle, setActiveThemeStyle,
-  openPopMenu, openModal, fmtTime,
+  openModal, fmtTime,
   SHORTCUT_ACTIONS, getShortcuts, setShortcut, resetShortcuts,
   getExtShortcuts, setExtShortcut, removeExtShortcut, shortcutExtCandidates,
   comboFromEvent, formatShortcut, registry,
@@ -447,7 +447,7 @@ function shortcutView() {
   const addBtn = el('button', { class: 'btn hk-add', onclick: askAddExtShortcut },
     el('span', { class: 'icon', html: icons.plus }), '添加扩展快捷键');
   const resetBtn = el('button', { class: 'btn hk-reset', onclick: askResetShortcuts },
-    el('span', { class: 'icon', html: icons.back }), '恢复默认');
+    el('span', { class: 'icon', html: icons.restore }), '恢复默认');
 
   const section = cardFor('shortcuts', '快捷键',
     el('div', { class: 'hk-list' }, ...builtinRows, ...extRows, pendingRow, emptyHint),
@@ -546,24 +546,22 @@ function themeStyleView() {
   const activeThemeStyle = getActiveThemeStyle();
   const themeStyleCards = el('div', { class: 'theme-style-cards' },
     getAllThemeStyles().map(themeStyle => {
+      const isCurrent = activeThemeStyle?.id === themeStyle.id;
       const activate = () => {
         setActiveThemeStyle(themeStyle.id);
         router.go('settings');
         toast(`已切换：${themeStyle.name}`);
       };
-      const more = el('button', {
-        class: 'theme-style-card-more', title: themeStyle.name + ' 更多', 'aria-label': themeStyle.name + ' 更多操作',
-        onclick: event => {
-          event.stopPropagation();
-          openPopMenu(event.currentTarget, [
-            { label: '查看详情', onClick: () => openThemeStyleDetail(themeStyle.id) },
-            // 已是当前样式时不再提供「设为当前样式」，避免冗余操作
-            ...(activeThemeStyle?.id === themeStyle.id ? [] : [{ label: '设为当前主题风格', onClick: activate }]),
-          ]);
-        },
-      }, el('span', { class: 'icon', html: icons.more }));
+      const iconAction = (icon, title, onClick, extraClass = '') => el('button', {
+        class: 'theme-style-card-act' + (extraClass ? ' ' + extraClass : ''),
+        title, 'aria-label': title,
+        onclick: event => { event.stopPropagation(); onClick(); },
+      }, el('span', { class: 'icon', html: icon }));
+      const actions = el('div', { class: 'theme-style-card-actions' },
+        iconAction(icons.info, '查看详情：' + themeStyle.name, () => openThemeStyleDetail(themeStyle.id)),
+        ...(isCurrent ? [] : [iconAction(icons.power, '设为当前主题风格：' + themeStyle.name, activate, 'primary')]));
       return el('div', {
-        class: 'theme-style-card' + (activeThemeStyle?.id === themeStyle.id ? ' active' : ''),
+        class: 'theme-style-card' + (isCurrent ? ' active' : ''),
         role: 'button', tabindex: '0', 'aria-label': `主题风格：${themeStyle.name}`,
         onclick: activate,
         onkeydown: event => {
@@ -574,13 +572,13 @@ function themeStyleView() {
         el('span', { class: 'icon', html: themeStyle.icon }),
         el('span', { class: 'theme-style-card-name' }, themeStyle.name),
         el('span', { class: 'theme-style-card-desc' }, themeStyle.desc || ''),
-        more);
+        actions);
     }));
   return [
     cardFor('themeStyle', '主题风格',
       themeStyleCards,
       activeThemeStyle?.settingsPanel ? activeThemeStyle.settingsPanel() : null,
-      el('p', { class: 'hint' }, '点击卡片切换主题风格；卡片右上角「⋯」可查看详情与挂载点配置。')),
+      el('p', { class: 'hint' }, '点击卡片切换主题风格；卡片右上角图标可查看详情或设为当前主题风格。')),
   ];
 }
 
@@ -859,7 +857,7 @@ function sourceView() {
       bus.emit('route');
       toast('已载入文件默认配置，点击「应用」生效');
     },
-  }, el('span', { class: 'icon', html: icons.back }), '载入默认');
+  }, el('span', { class: 'icon', html: icons.restore }), '载入默认');
 
   const formatBtn = el('button', {
     class: 'btn',
