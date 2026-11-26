@@ -452,7 +452,7 @@ export function setExtEnabled(id, on) {
   map[id] = on;
   store.set('extEnabled', map);
   if (!on && router.extId === id) {
-    router.go(firstMountedExtId());
+    router.go(firstMountedExtId() || 'ext-center');
   } else {
     bus.emit('route');
   }
@@ -543,15 +543,15 @@ export function slotExtRecord(zone, slot) {
   return null;
 }
 
-/** 首个已挂载且启用的扩展 ID，用于系统页退出后的回退。 */
+/** 首个已挂载且启用的业务扩展 ID（不含系统页），没有则返回 null。 */
 export function firstMountedExtId() {
   for (const zone of ['left', 'top', 'right', 'bottom']) {
     for (const slot of slotsOfZone(zone)) {
       const record = slotExtRecord(zone, slot.id);
-      if (record) return record.id;
+      if (record && !hasSystemPage(record.id)) return record.id;
     }
   }
-  return 'ext-center';
+  return null;
 }
 
 /** 主题风格声明的挂载点 + 用户自定义挂载点；panels 主题风格未声明时回落到五区（兼容第三方主题风格）
@@ -1093,11 +1093,13 @@ export function applyThemeStyleLayout() {
   syncSystemTopBar(isSystem);
 }
 
-/** 退出系统页回工作台：stage 回舞台，panels 进首个导航扩展 */
+/** 退出系统页回工作台：stage 回舞台，panels 进首个业务扩展，无则回上一页 */
 export function leaveSystem() {
   const themeStyle = getActiveThemeStyle();
   if (themeStyle?.renderStage) { router.back(); return; }
-  router.go(firstMountedExtId());
+  const first = firstMountedExtId();
+  if (first) router.go(first);
+  else router.back();
 }
 
 /* ---------- 数据变更重绘：保留焦点、光标位置与滚动位置 ----------
@@ -1495,6 +1497,8 @@ export function boot() {
   if (themeStyle?.renderStage) {
     router.back(); // stage 主题风格：启动即展示主舞台
   } else {
-    router.go(firstMountedExtId());
+    const first = firstMountedExtId();
+    if (first) router.go(first);
+    else renderAll(); // 空配置停留在工作台，不跳进系统页（顶栏用户入口保持可见）
   }
 }
