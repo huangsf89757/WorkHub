@@ -246,7 +246,7 @@ export function openModal(title, body, buttons, onClose) {
     (buttons || [{ label: '好', primary: true }]).map(btn => el('button', {
       class: 'btn' + (btn.primary ? ' primary' : '') + (btn.danger ? ' danger' : ''),
       onclick: () => btn.onClick ? btn.onClick(close) : close(),
-    }, btn.label)));
+    }, btn.icon ? el('span', { class: 'icon', html: btn.icon }) : null, btn.label)));
   const sheet = el('div', {
     class: 'sheet', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': titleId,
   }, el('div', { class: 'sheet-title', id: titleId }, title), body, actions);
@@ -1177,6 +1177,15 @@ function renderAll() {
 }
 
 /* ---------- 用户面板（右上角） ---------- */
+/** 快捷键提示：去掉平台前缀里的空格，保留紧凑符号 */
+const hintOf = combo => {
+  const isMac = /Mac|iPhone|iPad/.test(navigator.platform || navigator.userAgent);
+  return combo.split('+').map(p => ({
+    mod: isMac ? '⌘' : 'Ctrl', ctrl: 'Ctrl', meta: '⌘', alt: 'Alt', shift: '⇧',
+    esc: 'Esc', space: 'Space',
+  })[p] || (p === '1-9' ? '1-9' : p.toUpperCase())).join('');
+};
+
 let userPopOutside = null;
 function closeUserPop() {
   document.getElementById('userPop')?.remove();

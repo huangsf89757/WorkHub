@@ -20,6 +20,7 @@ import './pages.js';              // 副作用：注册内核系统页面（扩�
 import { restoreOutbox } from './sync.js'; // 同步引擎（骨架 + Supabase CloudAdapter）
 import { initCloudSync } from './cloud-sync.js'; // 云端同步引导（无配置则 no-op）
 import planned from './features.js';
+import platform from './platform.js';
 
 setPlannedFeatures(planned);
 
