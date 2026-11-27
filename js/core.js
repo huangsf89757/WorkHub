@@ -15,7 +15,7 @@
  *     resolveSlotMount, firstMountedExtId, entryExts, shortcutExtCandidates,
  *     getConfigSnapshot, applyConfigSnapshot
  *   extEnabled, setExtEnabled, EXT_STAGES, extStageLabel, extStageOf,
- *     isExtInstalled, installExt, uninstallExt, extNeedsUpdate, updateExt, isExtMounted
+ *     isExtInstalled, applyDefaultInstalledExts, installExt, uninstallExt, extNeedsUpdate, updateExt, isExtMounted
  *   themeColorNames, applyThemeColor
  *   SHORTCUT_ACTIONS, getShortcuts, setShortcut, resetShortcuts,
  *     getExtShortcuts, setExtShortcut, removeExtShortcut, shortcutExtCandidates,
@@ -370,11 +370,28 @@ export function extStageOf(id) {
   return getPlannedFeatures().find(f => f.id === id)?.stage || 'planning';
 }
 const extInstallState = () => store.get('extInstallState', {});
-/** registry 内置默认已安装；清单条目需显式安装（可被显式卸载覆盖）。 */
+/**
+ * 是否已安装。显式记录优先；存量中显式启用过的扩展视为已安装；
+ * 全新工作台不再因 registry 注册就默认安装，而由 extensions.json 决定。
+ */
 export function isExtInstalled(id) {
   const rec = extInstallState()[id];
   if (rec && typeof rec.installed === 'boolean') return rec.installed;
-  return !!registry.get(id);
+  if (store.get('extEnabled', {})[id] === true) return true;
+  return false;
+}
+/**
+ * 全新工作台按配置种子化默认安装清单。
+ * 仅当本地从未产生安装记录时生效；已有记录则尊重用户选择，直接返回 false。
+ * 返回是否写入。
+ */
+export function applyDefaultInstalledExts(ids) {
+  if (store.get('extInstallState', null) !== null) return false;
+  const list = Array.isArray(ids) ? [...new Set(ids.filter(id => typeof id === 'string' && id))] : [];
+  const now = Date.now();
+  const all = Object.fromEntries(list.map(id => [id, { installed: true, version: null, installedAt: now }]));
+  store.set('extInstallState', all);
+  return true;
 }
 export function installExt(id) {
   const all = extInstallState();
@@ -1448,6 +1465,8 @@ export function boot() {
 
   bus.on('route', renderAll);
   bus.on('data', onData);
+  // 偏好从云端合并后重绘五区与主题布局（rawSet 不发 pref，需显式通知界面）
+  bus.on('pref:synced', () => { applyThemeStyleLayout(); renderAll(); });
   window.addEventListener('hashchange', () => {
     const verdict = guardUnappliedNavigation();
     if (verdict === true) { applyHash(); return; }

@@ -5,7 +5,7 @@
  *   · 配置变更 / 登录 / 登出 → 通过 refreshCloudSync() 重新装配
  *   · 无配置 / 未登录 → 保持 sync 引擎 no-op，应用完全离线可用
  */
-import { setRemoteAdapter, startAutoSync, stopAutoSync, syncNow } from './sync.js';
+import { setRemoteAdapter, startAutoSync, stopAutoSync, syncNow, PREFS_DOMAIN, applyRemotePrefs } from './sync.js';
 import { applyRemote } from './data.js';
 import { getCloudConfig } from './cloud-config.js';
 import { ensureAccessToken, isSignedIn } from './cloud-auth.js';
@@ -13,6 +13,10 @@ import { createSupabaseAdapter, canUseCloud } from './cloud-adapter.js';
 import { bus } from './base.js';
 
 let autoStarted = false;
+
+/** 拉取分发：偏好域走 key 级 LWW，业务域走原有 applyRemote。 */
+const applyRemoteAll = (domain, records) =>
+  domain === PREFS_DOMAIN ? applyRemotePrefs(records) : applyRemote(domain, records);
 
 /** 当前是否应启用云端同步 */
 export const cloudSyncActive = () => canUseCloud() && isSignedIn();
@@ -28,9 +32,11 @@ export async function refreshCloudSync() {
   if (usable) {
     setRemoteAdapter(createSupabaseAdapter());
     if (!autoStarted) {
-      startAutoSync((domain, records) => applyRemote(domain, records));
+      startAutoSync(applyRemoteAll);
       autoStarted = true;
     }
+    // 新设备 / 新会话立即拉取一次，偏好不必等 30 秒轮询
+    void syncNow(applyRemoteAll);
   } else {
     setRemoteAdapter(null);
     stopAutoSync();
@@ -43,7 +49,7 @@ export async function refreshCloudSync() {
 /** 立即同步一次（设置页「立即同步」按钮） */
 export async function syncNowCloud() {
   if (!cloudSyncActive()) return null;
-  return syncNow((domain, records) => applyRemote(domain, records));
+  return syncNow(applyRemoteAll);
 }
 
 /** 启动时引导：非阻塞，失败不影响本地使用 */

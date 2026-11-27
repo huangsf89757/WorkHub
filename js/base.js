@@ -44,7 +44,15 @@ const PREF_KEYS = Object.freeze(new Set([
   'links', // 无独立表的通用 KV，归入系统设置命名空间
   'currentUserId', 'currentUserName',
   'deviceId',
+  'prefMeta', // 各偏好条目的同步元数据（meta by key）；本身不进同步白名单
 ]));
+
+/** 跨设备同步的偏好白名单。设备身份、同步游标等本地专属项不在此列。 */
+export const SYNCED_PREF_KEYS = Object.freeze([
+  'themeColor', 'themeStyle', 'themeStyleMounts', 'themeStylePoints',
+  'extEnabled', 'mountEnabled', 'extInstallState', 'rightCollapsed', 'shortcuts', 'searchRules',
+  'leftW', 'rightW', 'bottomH', 'navCollapsed', 'todoLastGroupId', 'links',
+]);
 
 /** 逻辑 key → 物理 localStorage key */
 export function storageKey(logical) {
@@ -108,6 +116,11 @@ export const store = {
     }
     // 基座偏好变更通知存储层镜像落库（db.js 订阅）；事件仍发逻辑 key
     bus.emit('pref', { key, value });
+  },
+  /** 仅写本地镜像，不发 pref、不触发同步入队（远端合并与元数据回写专用） */
+  rawSet(key, value) {
+    try { localStorage.setItem(storageKey(key), JSON.stringify(value)); }
+    catch (error) { bus.emit('store:error', { key, error }); }
   },
 };
 

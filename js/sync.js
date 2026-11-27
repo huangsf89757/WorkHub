@@ -12,11 +12,10 @@
  *   - 拉取按 since=lastPullAt 增量，按领域合并
  */
 
-import { bus } from './base.js';
+import { bus, store, SYNCED_PREF_KEYS, resetAppliedThisSession } from './base.js';
 import { getDeviceId, isOnline } from './platform.js';
 import { storageInfo, outboxAppend, outboxAck, outboxLoad } from './storage.js';
-import { observe } from './hlc.js';
-import { store } from './base.js';
+import { nextTs, observe } from './hlc.js';
 
 export const SYNC_STATE = { OFF: 'off', IDLE: 'idle', SYNCING: 'syncing', ERROR: 'error' };
 
@@ -57,6 +56,65 @@ export function enqueue(domain, op, record) {
   outboxAppend(entry);
   if (remote) bus.emit('sync:dirty', outbox.length);
 }
+
+/** 偏好同步域：每条偏好一条记录（id = 逻辑 key），避免整块偏好互相覆盖。 */
+export const PREFS_DOMAIN = 'sys_settings';
+
+/** 偏好写入即入 outbox；设备身份等本地专属 key 不入队。 */
+bus.on('pref', ({ key, value }) => {
+  if (!SYNCED_PREF_KEYS.includes(key)) return;
+  const all = store.get('prefMeta', {}) || {};
+  const prev = all[key];
+  const meta = { updatedAt: nextTs(), updatedBy: getDeviceId(), rev: (prev?.rev || 0) + 1, deletedAt: null };
+  all[key] = meta;
+  store.rawSet('prefMeta', all);
+  enqueue(PREFS_DOMAIN, 'upsert', { id: key, value, meta });
+});
+
+/** 远端偏好按 key 级 LWW 合并；本地较新时重新入队纠正服务端，不产生回声。 */
+export function applyRemotePrefs(records) {
+  const all = store.get('prefMeta', {}) || {};
+  let changed = 0;
+  for (const record of records || []) {
+    if (!record || !SYNCED_PREF_KEYS.includes(record.id)) continue;
+    observe(record.meta?.updatedAt);
+    const localMeta = all[record.id];
+    const local = localMeta ? { id: record.id, meta: localMeta } : null;
+    const winner = lwwWinner(local, record);
+    if (winner === record) {
+      if (JSON.stringify(store.get(record.id)) !== JSON.stringify(record.value)) {
+        store.rawSet(record.id, record.value);
+        changed++;
+      }
+      all[record.id] = record.meta;
+    } else if (localMeta && JSON.stringify(store.get(record.id)) !== JSON.stringify(record.value)) {
+      // 仅内容确有差异时才纠正服务端；相同值避免每次拉取都产生回声
+      enqueue(PREFS_DOMAIN, 'upsert', { id: record.id, value: store.get(record.id), meta: localMeta });
+    }
+  }
+  store.rawSet('prefMeta', all);
+  if (changed) bus.emit('pref:synced', { changed });
+  return { changed };
+}
+
+/** 启动时补种旧版本存量偏好（无同步 meta 的）入队；全新设备跳过，避免本地默认值覆盖云端。 */
+export function bootstrapPrefs() {
+  if (resetAppliedThisSession) return 0;
+  const all = store.get('prefMeta', {}) || {};
+  let added = 0;
+  for (const key of SYNCED_PREF_KEYS) {
+    if (all[key]) continue;
+    const value = store.get(key);
+    if (value === undefined) continue;
+    const meta = { updatedAt: nextTs(), updatedBy: getDeviceId(), rev: 1, deletedAt: null };
+    all[key] = meta;
+    enqueue(PREFS_DOMAIN, 'upsert', { id: key, value, meta });
+    added++;
+  }
+  if (added) store.rawSet('prefMeta', all);
+  return added;
+}
+
 /** 启动时从持久层恢复未推送条目（main.js 在 initStorage 之后调用）。返回恢复条数。 */
 export function restoreOutbox() {
   const rows = outboxLoad();

@@ -1,3 +1,8 @@
+---
+tags: [同步, 协议, v1]
+status: 已生效
+---
+
 # 多端同步协议 v1
 
 > 配套 `js/sync.js` + `js/cloud-*.js` · 2026-11-23 定稿，2026-11-24 更新落地状态
@@ -139,6 +144,24 @@ syncNow():
 | 重启组织结构 / 多租户 | 改 `user_id` 语义为 org/team scope，加关系表与可见性策略 | 权限层，通用表仍承载 |
 
 **结论**：复杂度增长时，绝大多数情况改的是算法（LWW 粒度）、索引（查询）、分页（规模），而非推翻表结构。只有明确的单个热点域才开专用表特例——这是渐进演进，不是一次性重构。
+
+## 13. 系统偏好同步
+
+界面偏好（如 `themeStyleMounts`、`extEnabled`、`mountEnabled`、`themeColor`）此前只存本机 `wh_sys_settings_*`，导致新设备看不到已配置的扩展挂载。现复用通用同步总线，不新增云表、不改 RPC：
+
+- **域**：`sys_settings`（`sync.js` 的 `PREFS_DOMAIN`）；每条偏好一条记录，`id` 为逻辑 key，`value` 为原值，`meta` 为 HLC 版本。key 级 LWW 避免整块偏好互相覆盖。
+- **白名单**：`base.js` 的 `SYNCED_PREF_KEYS`。`deviceId`、`currentUserId`、`prefMeta` 等本地专属项不同步。
+- **上行**：`store.set()` 发 `pref` 事件，`sync.js` 订阅后写 `prefMeta` 并入 `outbox`，与业务数据同批推送。
+- **下行**：`applyRemotePrefs()` 按 key 做 LWW；远端胜则用 `rawSet` 写本地并广播 `pref:synced` 触发重绘（不进 outbox，避免回声）；本地胜则把本地版本重新入队纠正服务端。
+- **存量补种**：启动时 `bootstrapPrefs()` 把旧版本写入、尚无 meta 的偏好补入 outbox，让已配置好的挂载点上云；全新设备（本次执行一次性重置）跳过，避免本地默认值反向覆盖云端。
+- **首次同步**：会话注入 adapter 后立即 `syncNow()` 一次，不必等 30 秒轮询。
+- **未登录/未配置**：引擎保持 no-op，偏好仅落本机，行为与以前一致。
+
+## 14. 变更历史
+
+| 日期 | 版本 | 修改人 | 变更摘要 |
+| --- | --- | --- | --- |
+| 2026-11-27 | v1.1 | hsf | 新增系统偏好同步（§13）：`sys_settings` 域、key 级 LWW、首次即时拉取 |
 
 ## 12. 按扩展可插拔的合并策略（ADR-008）
 

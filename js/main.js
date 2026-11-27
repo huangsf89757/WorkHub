@@ -4,7 +4,7 @@
  * 新增业务扩展：新建 ext-<id>.js，在此 import（registry.add 自注册）。
  * 新增 UI 主题风格：新建 theme-style-<id>.js，在此 import（registerThemeStyle 自注册）。
  */
-import { boot, setPlannedFeatures, setRefreshHandler } from './core.js';
+import { boot, setPlannedFeatures, setRefreshHandler, applyDefaultInstalledExts } from './core.js';
 import { refreshData } from './data-refresh.js';
 import { state } from './data.js';
 import { initStorage, flush } from './storage.js';
@@ -17,7 +17,7 @@ import './page-theme-style-detail.js';   // 副作用：注册主题风格详情
 import './page-ext-detail.js';    // 副作用：注册通用扩展详情系统页（介绍 / README / 预览）
 import './page-settings.js';      // 副作用：注册设置系统页（左侧分类 + 顶部搜索）
 import './pages.js';              // 副作用：注册内核系统页面（扩展中心）
-import { restoreOutbox } from './sync.js'; // 同步引擎（骨架 + Supabase CloudAdapter）
+import { restoreOutbox, bootstrapPrefs } from './sync.js'; // 同步引擎（骨架 + Supabase CloudAdapter）
 import { initCloudSync } from './cloud-sync.js'; // 云端同步引导（无配置则 no-op）
 import planned from './features.js';
 import platform from './platform.js';
@@ -26,9 +26,26 @@ setPlannedFeatures(planned);
 
 setRefreshHandler(refreshData);
 
+const DEFAULT_EXTS_URL = new URL('../extensions.json', import.meta.url);
+
+/** 全新工作台按 extensions.json 种子化默认安装；配置缺失或不可读时保持不预装 */
+async function applyDefaultInstalls() {
+  let ids = [];
+  try {
+    const res = await fetch(DEFAULT_EXTS_URL, { cache: 'no-store' });
+    if (res.ok) {
+      const cfg = await res.json();
+      if (Array.isArray(cfg?.defaultInstalled)) ids = cfg.defaultInstalled;
+    }
+  } catch { /* 配置不可读：降级为不预装 */ }
+  applyDefaultInstalledExts(ids);
+}
+
 /* 存储恢复完成后启动 UI；失败也不阻塞启动（降级为空数据） */
 initStorage(state).finally(async () => {
   restoreOutbox(); // 恢复上次未推送的变更
+  bootstrapPrefs(); // 旧版本存量偏好补种上云；全新设备跳过
+  await applyDefaultInstalls(); // 先于 boot：全新工作台按配置初始化安装态
   boot();
   // 云端同步非阻塞引导：有配置且会话有效才注入 adapter，否则保持本地优先
   await initCloudSync();
