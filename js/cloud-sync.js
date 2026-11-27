@@ -7,7 +7,7 @@
  */
 import { setRemoteAdapter, startAutoSync, stopAutoSync, syncNow, PREFS_DOMAIN, applyRemotePrefs } from './sync.js';
 import { applyRemote } from './data.js';
-import { getCloudConfig } from './cloud-config.js';
+import { getCloudConfig, isProxyMode } from './cloud-config.js';
 import { ensureAccessToken, isSignedIn } from './cloud-auth.js';
 import { createSupabaseAdapter, canUseCloud } from './cloud-adapter.js';
 import { bus } from './base.js';
@@ -19,13 +19,15 @@ const applyRemoteAll = (domain, records) =>
   domain === PREFS_DOMAIN ? applyRemotePrefs(records) : applyRemote(domain, records);
 
 /** 当前是否应启用云端同步 */
-export const cloudSyncActive = () => canUseCloud() && isSignedIn();
+export const cloudSyncActive = () => canUseCloud();
 
 /** 重新装配 adapter（登录成功后 / 登出 / 改配置后调用） */
 export async function refreshCloudSync() {
   const { configured } = getCloudConfig();
   let usable = false;
-  if (configured) {
+  if (isProxyMode()) {
+    usable = true; // 凭据在 Workers 服务端，浏览器端无需登录
+  } else if (configured) {
     const token = await ensureAccessToken();
     usable = !!token;
   }

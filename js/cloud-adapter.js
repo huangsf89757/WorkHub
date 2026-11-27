@@ -13,22 +13,25 @@ import { ensureAccessToken } from './cloud-auth.js';
 
 /** 统一 RPC 调用：注入 apikey + Bearer token，解析 JSON 错误 */
 async function rpc(fn, params) {
-  const { url, anonKey } = getCloudConfig();
-  if (!url || !anonKey) throw new Error('未配置 Supabase 连接信息');
-  const token = await ensureAccessToken();
-  if (!token) {
-    bus.emit('sync:auth-error', { reason: '未登录或会话已过期' });
-    throw new Error('云端同步未登录');
+  const { url, anonKey, proxy } = getCloudConfig();
+  if (!proxy && (!url || !anonKey)) throw new Error('未配置 Supabase 连接信息');
+  let token = null;
+  if (!proxy) {
+    token = await ensureAccessToken();
+    if (!token) {
+      bus.emit('sync:auth-error', { reason: '未登录或会话已过期' });
+      throw new Error('云端同步未登录');
+    }
   }
+  const endpoint = proxy ? `/api/rpc/${fn}` : `${url}/rest/v1/rpc/${fn}`;
+  const headers = proxy
+    ? { 'Content-Type': 'application/json' }
+    : { apikey: anonKey, Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
   let res;
   try {
-    res = await fetch(`${url}/rest/v1/rpc/${fn}`, {
+    res = await fetch(endpoint, {
       method: 'POST',
-      headers: {
-        apikey: anonKey,
-        Authorization: `Bearer ${token}`,
-        'Content-Type': 'application/json',
-      },
+      headers,
       body: JSON.stringify(params),
     });
   } catch {

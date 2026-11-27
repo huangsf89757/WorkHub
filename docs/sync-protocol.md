@@ -145,24 +145,6 @@ syncNow():
 
 **结论**：复杂度增长时，绝大多数情况改的是算法（LWW 粒度）、索引（查询）、分页（规模），而非推翻表结构。只有明确的单个热点域才开专用表特例——这是渐进演进，不是一次性重构。
 
-## 13. 系统偏好同步
-
-界面偏好（如 `themeStyleMounts`、`extEnabled`、`mountEnabled`、`themeColor`）此前只存本机 `wh_sys_settings_*`，导致新设备看不到已配置的扩展挂载。现复用通用同步总线，不新增云表、不改 RPC：
-
-- **域**：`sys_settings`（`sync.js` 的 `PREFS_DOMAIN`）；每条偏好一条记录，`id` 为逻辑 key，`value` 为原值，`meta` 为 HLC 版本。key 级 LWW 避免整块偏好互相覆盖。
-- **白名单**：`base.js` 的 `SYNCED_PREF_KEYS`。`deviceId`、`currentUserId`、`prefMeta` 等本地专属项不同步。
-- **上行**：`store.set()` 发 `pref` 事件，`sync.js` 订阅后写 `prefMeta` 并入 `outbox`，与业务数据同批推送。
-- **下行**：`applyRemotePrefs()` 按 key 做 LWW；远端胜则用 `rawSet` 写本地并广播 `pref:synced` 触发重绘（不进 outbox，避免回声）；本地胜则把本地版本重新入队纠正服务端。
-- **存量补种**：启动时 `bootstrapPrefs()` 把旧版本写入、尚无 meta 的偏好补入 outbox，让已配置好的挂载点上云；全新设备（本次执行一次性重置）跳过，避免本地默认值反向覆盖云端。
-- **首次同步**：会话注入 adapter 后立即 `syncNow()` 一次，不必等 30 秒轮询。
-- **未登录/未配置**：引擎保持 no-op，偏好仅落本机，行为与以前一致。
-
-## 14. 变更历史
-
-| 日期 | 版本 | 修改人 | 变更摘要 |
-| --- | --- | --- | --- |
-| 2026-11-27 | v1.1 | hsf | 新增系统偏好同步（§13）：`sys_settings` 域、key 级 LWW、首次即时拉取 |
-
 ## 12. 按扩展可插拔的合并策略（ADR-008）
 
 > 决策记录：[ADR-008](adr-008-sync-strategy.md) · 设计过程：[docs/plans/2026-11-24-sync-strategy-design.md](../docs/plans/2026-11-24-sync-strategy-design.md)
@@ -183,3 +165,32 @@ syncNow():
 设计目标：将来 `declareSync` 落地后，用户从 任务（lww-record）切到白板（crdt）时，同步引擎按当前写入域自动走对应策略。当前所有域统一走记录级 LWW。
 
 **关键约束**：CRDT 传增量操作，云端不能用 LWW 判定（会丢并发操作）。设计上 CRDT 更新同样装入通用 `sync_records`，用 `op='crdt-op'` + 每次 update 独立 `record_id`，云端只存不判、合并全在客户端——云端表结构不变。注意当前 `sync_records.op` 的 CHECK 仅允许 `upsert`/`delete`，落地 `crdt-op` 时需放宽该约束。CRDT 库（Yjs）到真正需要时再引入（vendor ESM 或 CDN），现在不引入以守住零构建约束。
+
+## 13. 系统偏好同步
+
+界面偏好（如 `themeStyleMounts`、`extEnabled`、`mountEnabled`、`themeColor`）此前只存本机 `wh_sys_settings_*`，导致新设备看不到已配置的扩展挂载。现复用通用同步总线，不新增云表、不改 RPC：
+
+- **域**：`sys_settings`（`sync.js` 的 `PREFS_DOMAIN`）；每条偏好一条记录，`id` 为逻辑 key，`value` 为原值，`meta` 为 HLC 版本。key 级 LWW 避免整块偏好互相覆盖。
+- **白名单**：`base.js` 的 `SYNCED_PREF_KEYS`。`deviceId`、`currentUserId`、`prefMeta` 等本地专属项不同步。
+- **上行**：`store.set()` 发 `pref` 事件，`sync.js` 订阅后写 `prefMeta` 并入 `outbox`，与业务数据同批推送。
+- **下行**：`applyRemotePrefs()` 按 key 做 LWW；远端胜则用 `rawSet` 写本地并广播 `pref:synced` 触发重绘（不进 outbox，避免回声）；本地胜则把本地版本重新入队纠正服务端。
+- **存量补种**：启动时 `bootstrapPrefs()` 把旧版本写入、尚无 meta 的偏好补入 outbox，让已配置好的挂载点上云；全新设备（本次执行一次性重置）跳过，避免本地默认值反向覆盖云端。
+- **首次同步**：会话注入 adapter 后立即 `syncNow()` 一次，不必等 30 秒轮询。
+- **未登录/未配置**：引擎保持 no-op，偏好仅落本机，行为与以前一致。
+
+## 14. Workers 代理模式
+
+线上 `*.workers.dev` 打开即同步：Supabase 账号凭据留在服务端，浏览器端零配置、零登录。
+
+- **部署**：`worker.js` 作为 Workers 入口，`wrangler.toml` 把仓库其余文件当静态资源；非 `/api/rpc/*` 请求交 `env.ASSETS` 返回。
+- **凭据**：Cloudflare Secrets 配 `SUPABASE_URL`、`SUPABASE_ANON_KEY`、`WORKHUB_EMAIL`、`WORKHUB_PASSWORD`。Worker 用账号密码登录 Supabase Auth，token 在实例内缓存，不进浏览器。
+- **前端**：`cloud-config.js` 的 `isProxyMode()` 检测 `*.workers.dev`；`cloud-adapter.js` 改调同源 `/api/rpc/sync_push|sync_pull`，不注入 apikey/Authorization；`cloud-sync.js` 直接启用同步，无需浏览器登录。
+- **其他环境**：本地与 GitHub Pages 仍走原有直连 Supabase + 登录流程，行为不变。
+- **部署步骤**：先执行四条 `wrangler secret put <名称>` 录入变量，再 `wrangler deploy`。
+
+## 15. 变更历史
+
+| 日期 | 版本 | 修改人 | 变更摘要 |
+| --- | --- | --- | --- |
+| 2026-11-27 | v1.1 | hsf | 新增系统偏好同步（§13）：`sys_settings` 域、key 级 LWW、首次即时拉取 |
+| 2026-11-27 | v1.2 | hsf | 新增 Workers 代理模式（§14）：凭据服务端化，打开 workers.dev 即同步 |

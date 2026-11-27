@@ -8,7 +8,7 @@
  * 所有错误映射为中文文案，不抛原始堆栈。
  */
 import { store } from './base.js';
-import { getCloudConfig } from './cloud-config.js';
+import { getCloudConfig, isProxyMode } from './cloud-config.js';
 
 const KEY_REFRESH = 'cloudRefreshToken';
 const TOKEN_ENDPOINT = '/auth/v1/token?grant_type=password';
@@ -17,7 +17,7 @@ const REFRESH_ENDPOINT = '/auth/v1/token?grant_type=refresh_token';
 let session = null; // { accessToken, userId, email, expiresAt }
 
 export const getSession = () => session;
-export const isSignedIn = () => !!session?.accessToken;
+export const isSignedIn = () => isProxyMode() || !!session?.accessToken;
 
 const err = (op, e) => {
   const msg = e?.msg || e?.message || e?.error_description || '网络请求失败';
@@ -116,7 +116,7 @@ export async function ensureAccessToken() {
 
 export const cloudAuthSnapshot = () => ({
   signedIn: isSignedIn(),
-  email: session?.email || null,
+  email: isProxyMode() ? 'Workers 代理' : (session?.email || null),
   userId: session?.userId || null,
-  hasRefresh: !!store.get(KEY_REFRESH, ''),
+  hasRefresh: isProxyMode() || !!store.get(KEY_REFRESH, ''),
 });

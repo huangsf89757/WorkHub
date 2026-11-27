@@ -16,10 +16,15 @@ export const CLOUD_PREFILL = {
   anonKey: 'sb_publishable_3ggs2EevdW2Ff7zPoxkT3Q__5Tey5ns',
 };
 
+/** Workers 代理模式：同源 /api/rpc/* 由服务端持有凭据并登录，浏览器端无需配置或登录 */
+export const isProxyMode = () =>
+  typeof location !== 'undefined' && /\.workers\.dev$/.test(location.hostname || '');
+
 export const getCloudConfig = () => {
   const url = (store.get(KEY_URL, '') || '').trim().replace(/\/+$/, '');
   const anonKey = (store.get(KEY_ANON, '') || '').trim();
-  return { url, anonKey, configured: !!url && !!anonKey };
+  const proxy = isProxyMode();
+  return { url, anonKey, proxy, configured: proxy || (!!url && !!anonKey) };
 };
 
 export const setCloudConfig = (url, anonKey) => {
