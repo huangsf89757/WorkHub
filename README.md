@@ -25,6 +25,10 @@
 
 > 自建后端见 [docs/supabase-setup.md](docs/supabase-setup.md)。
 
+## 首次初始化
+
+首次打开（本地未标记初始化完成）会进入分步引导：设置称呼、主题色与主题风格，选择要安装的扩展，确认后进入工作台。配置只在点「进入 WorkHub」时落盘，之后可在设置页随时修改；完成或跳过后不再重复引导。
+
 ## 默认安装扩展
 
 全新工作台默认不安装任何业务扩展。编辑根目录 [`extensions.json`](extensions.json) 的 `defaultInstalled` 数组可指定初始化时预装的扩展 id（取值见 [`js/features.js`](js/features.js)）：

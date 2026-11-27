@@ -959,7 +959,7 @@ function renderCenter() {
       box.append(el('div', { class: 'empty-shell' },
         el('div', { class: 'empty-shell-mark', html: icons.puzzle }),
         el('h2', {}, 'WorkHub 已就绪'),
-        el('p', {}, '内核启动完成，当前没有已安装的扩展。'),
+        el('p', {}, '内核启动完成，前往扩展中心挂载扩展即可开始使用。'),
         el('p', {}, '前往扩展中心查看规划中的能力，或从 FEATURES.md 选择下一个要实现的功能。'),
         el('button', { class: 'btn primary', onclick: () => router.go('ext-center') }, '打开扩展中心')));
     }

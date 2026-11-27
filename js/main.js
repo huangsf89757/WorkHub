@@ -19,6 +19,7 @@ import './page-settings.js';      // 副作用：注册设置系统页（左侧�
 import './pages.js';              // 副作用：注册内核系统页面（扩展中心）
 import { restoreOutbox, bootstrapPrefs } from './sync.js'; // 同步引擎（骨架 + Supabase CloudAdapter）
 import { initCloudSync } from './cloud-sync.js'; // 云端同步引导（无配置则 no-op）
+import { maybeRunSetup } from './setup-wizard.js'; // 首次访问初始化向导
 import planned from './features.js';
 import platform from './platform.js';
 
@@ -46,6 +47,7 @@ initStorage(state).finally(async () => {
   restoreOutbox(); // 恢复上次未推送的变更
   bootstrapPrefs(); // 旧版本存量偏好补种上云；全新设备跳过
   await applyDefaultInstalls(); // 先于 boot：全新工作台按配置初始化安装态
+  await maybeRunSetup(); // 未标记 setupDone 时展示分步向导，完成/跳过后继续
   boot();
   // 云端同步非阻塞引导：有配置且会话有效才注入 adapter，否则保持本地优先
   await initCloudSync();

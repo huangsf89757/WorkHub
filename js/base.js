@@ -44,6 +44,7 @@ const PREF_KEYS = Object.freeze(new Set([
   'links', // 无独立表的通用 KV，归入系统设置命名空间
   'currentUserId', 'currentUserName',
   'deviceId',
+  'setupDone', // 首次初始化向导已完成标记
   'prefMeta', // 各偏好条目的同步元数据（meta by key）；本身不进同步白名单
 ]));
 
