@@ -25,6 +25,18 @@
 
 > 自建后端见 [docs/supabase-setup.md](docs/supabase-setup.md)。
 
+## 默认安装扩展
+
+全新工作台默认不安装任何业务扩展。编辑根目录 [`extensions.json`](extensions.json) 的 `defaultInstalled` 数组可指定初始化时预装的扩展 id（取值见 [`js/features.js`](js/features.js)）：
+
+```json
+{
+  "defaultInstalled": ["todo"]
+}
+```
+
+该配置仅对全新工作台生效（本地从未产生安装记录）；已有用户在扩展中心的安装/卸载选择不会被覆盖。
+
 ## 文档
 
 - [产品定位](PRODUCT.md) · [扩展清单](FEATURES.md) · [实现排期](ROADMAP.md)

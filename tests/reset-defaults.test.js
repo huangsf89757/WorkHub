@@ -4,7 +4,7 @@ import { installLocalStorage, installFakeBrowser } from './helpers.js';
 installLocalStorage(); installFakeBrowser();
 
 const { extEnabled, setExtEnabled, registry, store, resolveSlotMount, getConfigSnapshot, applyConfigSnapshot,
-  setPlannedFeatures, extStageOf, isExtInstalled, installExt, uninstallExt, extNeedsUpdate, updateExt } = await import('../js/core.js');
+  setPlannedFeatures, extStageOf, isExtInstalled, applyDefaultInstalledExts, installExt, uninstallExt, extNeedsUpdate, updateExt } = await import('../js/core.js');
 const { storageKey } = await import('../js/base.js');
 
 test('全新状态下业务扩展默认关闭（extEnabled 默认 false）', () => {
@@ -97,4 +97,28 @@ test('清单扩展：默认未安装 → 安装 → 待更新 → 更新 → 卸
   assert.equal(isExtInstalled('tool-json'), false);
   localStorage.removeItem(storageKey('extInstallState'));
   setPlannedFeatures([]);
+});
+
+test('默认安装初始化：全新不预装，配置种子化，存量选择不被覆盖', () => {
+  localStorage.setItem(storageKey('extEnabled'), JSON.stringify({}));
+  localStorage.removeItem(storageKey('extInstallState'));
+
+  // 仅被 import 注册不等于已安装
+  assert.equal(isExtInstalled('todo'), false, 'registry 注册不再隐含已安装');
+
+  // 空配置：写下空清单即锁定初始化，后续配置变更不影响该用户
+  assert.equal(applyDefaultInstalledExts([]), true, '首次应写入');
+  assert.equal(isExtInstalled('todo'), false);
+  assert.equal(applyDefaultInstalledExts(['todo']), false, '已有记录后不再覆盖');
+
+  // 全新状态按配置预装
+  localStorage.removeItem(storageKey('extInstallState'));
+  assert.equal(applyDefaultInstalledExts(['todo']), true);
+  assert.equal(isExtInstalled('todo'), true, '配置列出的扩展应已安装');
+
+  // 显式卸载状态优先于任何默认值
+  localStorage.setItem(storageKey('extInstallState'), JSON.stringify({ todo: { installed: false } }));
+  assert.equal(isExtInstalled('todo'), false, '显式卸载优先');
+
+  localStorage.removeItem(storageKey('extInstallState'));
 });
